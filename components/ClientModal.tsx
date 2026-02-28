@@ -1,0 +1,173 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { X, User, Mail, Tv, Calendar, ShieldCheck } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+interface Client {
+  id: number;
+  name: string;
+  email: string;
+  plan: string;
+  status: string;
+  expiry: string;
+  image: string;
+}
+
+interface ClientModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (client: Omit<Client, 'id' | 'image'> & { id?: number }) => void;
+  editingClient?: Client | null;
+}
+
+export default function ClientModal({ isOpen, onClose, onSave, editingClient }: ClientModalProps) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+          />
+          <motion.div
+            key={editingClient?.id || 'new'}
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+          >
+            <ClientForm editingClient={editingClient} onSave={onSave} onClose={onClose} />
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function ClientForm({ editingClient, onSave, onClose }: { editingClient?: Client | null, onSave: any, onClose: any }) {
+  const [formData, setFormData] = useState({
+    name: editingClient?.name || '',
+    email: editingClient?.email || '',
+    plan: editingClient?.plan || 'Standard HD',
+    status: editingClient?.status || 'Ativo',
+    expiry: editingClient?.expiry || '',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(editingClient ? { ...formData, id: editingClient.id } : formData);
+    onClose();
+  };
+
+  return (
+    <>
+      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+          {editingClient ? 'Editar Cliente' : 'Novo Cliente'}
+        </h2>
+        <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+          <X className="w-5 h-5 text-slate-500" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <User className="w-4 h-4" /> Nome Completo
+          </label>
+          <input
+            required
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            placeholder="Ex: João Silva"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <Mail className="w-4 h-4" /> Email
+          </label>
+          <input
+            required
+            type="email"
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            placeholder="joao@exemplo.com"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Tv className="w-4 h-4" /> Plano
+            </label>
+            <select
+              value={formData.plan}
+              onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            >
+              <option>Basic SD</option>
+              <option>Standard HD</option>
+              <option>Premium 4K</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Calendar className="w-4 h-4" /> Vencimento
+            </label>
+            <input
+              required
+              value={formData.expiry}
+              onChange={(e) => setFormData({ ...formData, expiry: e.target.value })}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+              placeholder="DD/MM/AAAA"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" /> Status
+          </label>
+          <div className="flex gap-4">
+            {['Ativo', 'Vencendo', 'Inativo'].map((s) => (
+              <label key={s} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="status"
+                  checked={formData.status === s}
+                  onChange={() => setFormData({ ...formData, status: s })}
+                  className="text-primary focus:ring-primary"
+                />
+                <span className="text-sm text-slate-600 dark:text-slate-400">{s}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="pt-4 flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-6 py-3 rounded-lg font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            className="flex-1 px-6 py-3 rounded-lg font-bold bg-primary text-white shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+          >
+            {editingClient ? 'Salvar Alterações' : 'Cadastrar Cliente'}
+          </button>
+        </div>
+      </form>
+    </>
+  );
+}
