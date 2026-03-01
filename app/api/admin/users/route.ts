@@ -1,206 +1,163 @@
-import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-// client normal (para verificar quem está chamando via cookie/session)
-function supabaseServerFromRequest(req: Request) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, anon, {
-    global: {
-      headers: {
-        // passa o bearer se existir (caso você use Authorization)
-        Authorization: req.headers.get("Authorization") ?? "",
-      },
-    },
+// Server-side admin endpoint.
+// Requer:
+// - NEXT_PUBLIC_SUPABASE_URL
+// - NEXT_PUBLIC_SUPABASE_ANON_KEY
+// - SUPABASE_SERVICE_ROLE_KEY (somente no server / Vercel)
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+function getBearer(req: Request) {
+  const auth = req.headers.get('authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] ?? null;
+}
+
+async function requireAdmin(req: Request) {
+  const token = getBearer(req);
+  if (!token) {
+    return { ok: false as const, error: 'Sem token. Faça login novamente.' };
+  }
+
+  // client com anon só para validar token
+  const sb = createClient(supabaseUrl, supabaseAnon, {
+    auth: { persistSession: false },
   });
-}
 
-async function assertAdmin(req: Request) {
-  const supabase = supabaseServerFromRequest(req);
-
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  const user = userData?.user;
-
-  if (userErr || !user) {
-    throw new Error("Não autenticado.");
+  const { data: userData, error: userErr } = await sb.auth.getUser(token);
+  if (userErr || !userData.user) {
+    return { ok: false as const, error: 'Token inválido. Faça login novamente.' };
   }
 
-  // verifica role no profiles usando Service Role (sem RLS)
-  const { data: prof, error: profErr } = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const user = userData.user;
 
-  if (profErr) throw new Error("Falha ao ler perfil admin.");
-  if (prof?.role !== "admin") throw new Error("Acesso negado. Somente admin.");
+  const { data: prof, error: profErr } = await sb
+    .from('profiles')
+    .select('id, role, is_admin')
+    .eq('id', user.id)
+    .maybeSingle();
 
-  return user;
+  if (profErr) {
+    return { ok: false as const, error: profErr.message };
+  }
+
+  const isAdmin = !!(prof?.is_admin || prof?.role === 'admin');
+  if (!isAdmin) {
+    return { ok: false as const, error: 'Acesso negado. Apenas admin.' };
+  }
+
+  return { ok: true as const, user };
 }
 
-// GET: lista usuários + profiles
 export async function GET(req: Request) {
-  try {
-    await assertAdmin(req);
+  const gate = await requireAdmin(req);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 401 });
 
-    // lista usuários (Auth)
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000,
-    });
+  const admin = createClient(supabaseUrl, serviceRole, {
+    auth: { persistSession: false },
+  });
 
-    if (error) throw error;
+  // Lista usuários via profiles (mais simples)
+  const { data, error } = await admin
+    .from('profiles')
+    .select('id, email, role, is_admin, created_at')
+    .order('created_at', { ascending: false });
 
-    const users = data.users ?? [];
-
-    // pega profiles
-    const ids = users.map((u) => u.id);
-    const { data: profiles } = await supabaseAdmin
-      .from("profiles")
-      .select("id, role, name, created_at")
-      .in("id", ids);
-
-    const profMap = new Map((profiles ?? []).map((p: any) => [p.id, p]));
-
-    return NextResponse.json({
-      users: users.map((u) => ({
-        id: u.id,
-        email: u.email,
-        created_at: u.created_at,
-        last_sign_in_at: u.last_sign_in_at,
-        profile: profMap.get(u.id) ?? null,
-      })),
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Erro" },
-      { status: 401 }
-    );
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ users: data ?? [] });
 }
 
-// POST: cria usuário operador/admin
 export async function POST(req: Request) {
-  try {
-    await assertAdmin(req);
+  const gate = await requireAdmin(req);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 401 });
 
-    const body = await req.json();
-    const email = String(body.email ?? "").trim();
-    const password = String(body.password ?? "").trim();
-    const name = String(body.name ?? "").trim();
-    const role = body.role === "admin" ? "admin" : "operator";
+  const body = await req.json().catch(() => ({}));
+  const email = String(body.email || '').trim();
+  const password = String(body.password || '').trim();
+  const role = String(body.role || 'operator').trim();
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: "Email e senha são obrigatórios." },
-        { status: 400 }
-      );
-    }
+  if (!email || !password) {
+    return NextResponse.json({ error: 'Email e senha são obrigatórios.' }, { status: 400 });
+  }
 
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+  const admin = createClient(supabaseUrl, serviceRole, {
+    auth: { persistSession: false },
+  });
+
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+
+  if (createErr || !created.user) {
+    return NextResponse.json({ error: createErr?.message || 'Falha ao criar usuário.' }, { status: 400 });
+  }
+
+  // garante profile
+  const { error: upErr } = await admin
+    .from('profiles')
+    .upsert({
+      id: created.user.id,
       email,
-      password,
-      email_confirm: true,
-      user_metadata: { name },
+      role: role === 'admin' ? 'admin' : 'operator',
+      is_admin: role === 'admin',
     });
 
-    if (error) throw error;
-
-    const userId = data.user?.id;
-    if (userId) {
-      // cria/atualiza profile
-      await supabaseAdmin.from("profiles").upsert({
-        id: userId,
-        role,
-        name: name || email,
-      });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Erro ao criar usuário" },
-      { status: 400 }
-    );
+  if (upErr) {
+    return NextResponse.json({ error: upErr.message }, { status: 400 });
   }
+
+  return NextResponse.json({ ok: true });
 }
 
-// PATCH: alterar role / resetar senha
 export async function PATCH(req: Request) {
-  try {
-    await assertAdmin(req);
+  const gate = await requireAdmin(req);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 401 });
 
-    const body = await req.json();
-    const userId = String(body.userId ?? "");
-    const action = String(body.action ?? "");
+  const body = await req.json().catch(() => ({}));
+  const id = String(body.id || '').trim();
+  const role = String(body.role || '').trim();
 
-    if (!userId) {
-      return NextResponse.json({ error: "userId obrigatório" }, { status: 400 });
-    }
-
-    if (action === "setRole") {
-      const role = body.role === "admin" ? "admin" : "operator";
-
-      const { error } = await supabaseAdmin
-        .from("profiles")
-        .upsert({ id: userId, role });
-
-      if (error) throw error;
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (action === "resetPassword") {
-      const password = String(body.password ?? "").trim();
-      if (!password) {
-        return NextResponse.json(
-          { error: "Senha obrigatória" },
-          { status: 400 }
-        );
-      }
-
-      const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-        password,
-      });
-
-      if (error) throw error;
-
-      return NextResponse.json({ ok: true });
-    }
-
-    return NextResponse.json({ error: "Ação inválida" }, { status: 400 });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Erro" },
-      { status: 400 }
-    );
+  if (!id || !role) {
+    return NextResponse.json({ error: 'id e role são obrigatórios.' }, { status: 400 });
   }
+
+  const admin = createClient(supabaseUrl, serviceRole, {
+    auth: { persistSession: false },
+  });
+
+  const { error } = await admin
+    .from('profiles')
+    .update({ role: role === 'admin' ? 'admin' : 'operator', is_admin: role === 'admin' })
+    .eq('id', id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }
 
-// DELETE: remove usuário
 export async function DELETE(req: Request) {
-  try {
-    await assertAdmin(req);
+  const gate = await requireAdmin(req);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 401 });
 
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("userId") || "";
+  const body = await req.json().catch(() => ({}));
+  const id = String(body.id || '').trim();
+  if (!id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
 
-    if (!userId) {
-      return NextResponse.json({ error: "userId obrigatório" }, { status: 400 });
-    }
+  const admin = createClient(supabaseUrl, serviceRole, {
+    auth: { persistSession: false },
+  });
 
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
-    if (error) throw error;
+  // remove usuário do auth
+  const { error: delErr } = await admin.auth.admin.deleteUser(id);
+  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 400 });
 
-    // profile será removido pelo cascade, mas garante:
-    await supabaseAdmin.from("profiles").delete().eq("id", userId);
+  // profiles geralmente será removido por trigger/cascade, mas tenta garantir
+  await admin.from('profiles').delete().eq('id', id);
 
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Erro" },
-      { status: 400 }
-    );
-  }
+  return NextResponse.json({ ok: true });
 }
