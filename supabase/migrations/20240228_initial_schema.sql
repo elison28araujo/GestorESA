@@ -1,110 +1,169 @@
--- Create Plans table
-CREATE TABLE IF NOT EXISTS plans (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  months INTEGER NOT NULL,
-  value NUMERIC(10, 2) NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+-- 1) PERFIL DO USUÁRIO (ROLE)
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  role text not null default 'operator', -- 'admin' | 'operator'
+  name text,
+  created_at timestamptz not null default now()
 );
 
--- Create Servers table
-CREATE TABLE IF NOT EXISTS servers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  login TEXT NOT NULL,
-  password TEXT NOT NULL,
-  max_clients_per_user INTEGER DEFAULT 3,
-  status TEXT DEFAULT 'Online',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
+alter table profiles enable row level security;
 
--- Create Customers table
-CREATE TABLE IF NOT EXISTS customers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  phone TEXT,
-  plan TEXT NOT NULL,
-  status TEXT NOT NULL,
-  expiry DATE NOT NULL,
-  image TEXT,
-  server_id UUID REFERENCES servers(id),
-  login TEXT,
-  password TEXT,
-  server_accesses JSONB DEFAULT '[]',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
+drop policy if exists "profiles_read_own" on profiles;
+create policy "profiles_read_own"
+on profiles for select
+using (id = auth.uid());
 
--- Create Transactions table
-CREATE TABLE IF NOT EXISTS transactions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  customer TEXT NOT NULL,
-  type TEXT NOT NULL,
-  amount NUMERIC(10, 2) NOT NULL,
-  date DATE NOT NULL,
-  method TEXT NOT NULL,
-  status TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
+drop policy if exists "profiles_update_own" on profiles;
+create policy "profiles_update_own"
+on profiles for update
+using (id = auth.uid());
 
--- Enable RLS
-ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
-ALTER TABLE servers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+-- Admin pode ler/alterar qualquer profile
+drop policy if exists "profiles_admin_all" on profiles;
+create policy "profiles_admin_all"
+on profiles for all
+using (exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin'))
+with check (exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin'));
 
--- =========================
--- DROP POLICIES IF EXISTS
--- =========================
 
--- plans
-DROP POLICY IF EXISTS "Allow public read access on plans" ON plans;
-DROP POLICY IF EXISTS "Allow public insert access on plans" ON plans;
-DROP POLICY IF EXISTS "Allow public update access on plans" ON plans;
-DROP POLICY IF EXISTS "Allow public delete access on plans" ON plans;
+-- 2) ADD owner_id NAS TABELAS
+alter table customers add column if not exists owner_id uuid references auth.users(id);
+alter table servers add column if not exists owner_id uuid references auth.users(id);
+alter table transactions add column if not exists owner_id uuid references auth.users(id);
+alter table plans add column if not exists owner_id uuid references auth.users(id);
+
+-- 3) REMOVER POLÍTICAS "PÚBLICAS" (muito perigoso)
+-- customers
+drop policy if exists "Allow public read access on customers" on customers;
+drop policy if exists "Allow public insert access on customers" on customers;
+drop policy if exists "Allow public update access on customers" on customers;
+drop policy if exists "Allow public delete access on customers" on customers;
 
 -- servers
-DROP POLICY IF EXISTS "Allow public read access on servers" ON servers;
-DROP POLICY IF EXISTS "Allow public insert access on servers" ON servers;
-DROP POLICY IF EXISTS "Allow public update access on servers" ON servers;
-DROP POLICY IF EXISTS "Allow public delete access on servers" ON servers;
-
--- customers
-DROP POLICY IF EXISTS "Allow public read access on customers" ON customers;
-DROP POLICY IF EXISTS "Allow public insert access on customers" ON customers;
-DROP POLICY IF EXISTS "Allow public update access on customers" ON customers;
-DROP POLICY IF EXISTS "Allow public delete access on customers" ON customers;
+drop policy if exists "Allow public read access on servers" on servers;
+drop policy if exists "Allow public insert access on servers" on servers;
+drop policy if exists "Allow public update access on servers" on servers;
+drop policy if exists "Allow public delete access on servers" on servers;
 
 -- transactions
-DROP POLICY IF EXISTS "Allow public read access on transactions" ON transactions;
-DROP POLICY IF EXISTS "Allow public insert access on transactions" ON transactions;
-DROP POLICY IF EXISTS "Allow public update access on transactions" ON transactions;
-DROP POLICY IF EXISTS "Allow public delete access on transactions" ON transactions;
-
--- =========================
--- CREATE POLICIES
--- =========================
+drop policy if exists "Allow public read access on transactions" on transactions;
+drop policy if exists "Allow public insert access on transactions" on transactions;
+drop policy if exists "Allow public update access on transactions" on transactions;
+drop policy if exists "Allow public delete access on transactions" on transactions;
 
 -- plans
-CREATE POLICY "Allow public read access on plans" ON plans FOR SELECT USING (true);
-CREATE POLICY "Allow public insert access on plans" ON plans FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update access on plans" ON plans FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete access on plans" ON plans FOR DELETE USING (true);
+drop policy if exists "Allow public read access on plans" on plans;
+drop policy if exists "Allow public insert access on plans" on plans;
+drop policy if exists "Allow public update access on plans" on plans;
+drop policy if exists "Allow public delete access on plans" on plans;
 
--- servers
-CREATE POLICY "Allow public read access on servers" ON servers FOR SELECT USING (true);
-CREATE POLICY "Allow public insert access on servers" ON servers FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update access on servers" ON servers FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete access on servers" ON servers FOR DELETE USING (true);
 
--- customers
-CREATE POLICY "Allow public read access on customers" ON customers FOR SELECT USING (true);
-CREATE POLICY "Allow public insert access on customers" ON customers FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update access on customers" ON customers FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete access on customers" ON customers FOR DELETE USING (true);
+-- 4) POLÍTICAS CORRETAS (OPERADOR = apenas dele / ADMIN = tudo)
 
--- transactions
-CREATE POLICY "Allow public read access on transactions" ON transactions FOR SELECT USING (true);
-CREATE POLICY "Allow public insert access on transactions" ON transactions FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update access on transactions" ON transactions FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete access on transactions" ON transactions FOR DELETE USING (true);
+-- helper: admin check
+-- (não é função, é só padrão de expressão repetida)
+-- exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+
+-- CUSTOMERS
+create policy "customers_select"
+on customers for select
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "customers_insert"
+on customers for insert
+with check (owner_id = auth.uid());
+
+create policy "customers_update"
+on customers for update
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "customers_delete"
+on customers for delete
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+-- SERVERS
+create policy "servers_select"
+on servers for select
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "servers_insert"
+on servers for insert
+with check (owner_id = auth.uid());
+
+create policy "servers_update"
+on servers for update
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "servers_delete"
+on servers for delete
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+-- TRANSACTIONS
+create policy "transactions_select"
+on transactions for select
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "transactions_insert"
+on transactions for insert
+with check (owner_id = auth.uid());
+
+create policy "transactions_update"
+on transactions for update
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "transactions_delete"
+on transactions for delete
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+-- PLANS (se quiser que planos sejam por operador)
+create policy "plans_select"
+on plans for select
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "plans_insert"
+on plans for insert
+with check (owner_id = auth.uid());
+
+create policy "plans_update"
+on plans for update
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
+
+create policy "plans_delete"
+on plans for delete
+using (
+  owner_id = auth.uid()
+  or exists (select 1 from profiles p where p.id = auth.uid() and p.role='admin')
+);
