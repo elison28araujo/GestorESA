@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS customers (
   server_id UUID REFERENCES servers(id),
   login TEXT,
   password TEXT,
+  server_accesses JSONB DEFAULT '[]',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

@@ -28,6 +28,7 @@ interface Client {
   server_id: any;
   login: string;
   password: string;
+  server_accesses?: { server_id: any, login: string, password: string }[];
 }
 
 interface ClientsSectionProps {
@@ -45,7 +46,8 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
   const filteredCustomers = customers.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.login.toLowerCase().includes(searchQuery.toLowerCase())
+    c.login.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.server_accesses?.some(a => a.login.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const handleSaveClient = async (clientData: any) => {
@@ -61,7 +63,8 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
             expiry: clientData.expiry,
             server_id: clientData.server_id,
             login: clientData.login,
-            password: clientData.password
+            password: clientData.password,
+            server_accesses: clientData.server_accesses
           })
           .eq('id', clientData.id);
 
@@ -77,7 +80,8 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
           image: `https://picsum.photos/seed/${clientData.name}/40/40`,
           server_id: clientData.server_id,
           login: clientData.login,
-          password: clientData.password
+          password: clientData.password,
+          server_accesses: clientData.server_accesses
         };
 
         const { data, error } = await supabase
@@ -197,13 +201,28 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400">
-                        <Server className="w-3 h-3" /> {getServerName(customer.server_id)}
-                      </div>
-                      <div className="flex items-center gap-1 text-xs font-mono text-primary">
-                        <Shield className="w-3 h-3" /> {customer.login || 'N/A'}
-                      </div>
+                    <div className="space-y-2">
+                      {customer.server_accesses && customer.server_accesses.length > 0 ? (
+                        customer.server_accesses.map((access, idx) => (
+                          <div key={idx} className="space-y-1 pb-2 border-b border-slate-100 dark:border-slate-800 last:border-0 last:pb-0">
+                            <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400">
+                              <Server className="w-2 h-2" /> {getServerName(access.server_id)}
+                            </div>
+                            <div className="flex items-center gap-1 text-[10px] font-mono text-primary">
+                              <Shield className="w-2 h-2" /> {access.login || 'N/A'}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400">
+                            <Server className="w-3 h-3" /> {getServerName(customer.server_id)}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs font-mono text-primary">
+                            <Shield className="w-3 h-3" /> {customer.login || 'N/A'}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 font-medium">{customer.plan}</td>

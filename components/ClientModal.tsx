@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, User, Mail, Tv, Calendar, ShieldCheck, Server, Lock } from 'lucide-react';
+import { X, User, Mail, Tv, Calendar, ShieldCheck, Server, Lock, Plus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface Client {
@@ -15,9 +15,11 @@ interface Client {
   server_id: any;
   login: string;
   password: string;
+  server_accesses?: { server_id: any, login: string, password: string }[];
 }
 
 interface ClientModalProps {
+// ... (rest of the interface)
   isOpen: boolean;
   onClose: () => void;
   onSave: (client: any) => void;
@@ -66,32 +68,82 @@ function ClientForm({ editingClient, onSave, onClose, servers, allClients }: { e
     plan: editingClient?.plan || 'Standard HD',
     status: editingClient?.status || 'Ativo',
     expiry: editingClient?.expiry || '',
-    server_id: editingClient?.server_id || '',
-    login: editingClient?.login || '',
-    password: editingClient?.password || '',
+    server_accesses: editingClient?.server_accesses && editingClient.server_accesses.length > 0
+      ? editingClient.server_accesses 
+      : (editingClient?.server_id 
+          ? [{ server_id: editingClient.server_id, login: editingClient.login, password: editingClient.password }] 
+          : [{ server_id: '', login: '', password: '' }]),
   });
 
   const [error, setError] = useState<string | null>(null);
+
+  const addAccess = () => {
+    setFormData({
+      ...formData,
+      server_accesses: [...formData.server_accesses, { server_id: '', login: '', password: '' }]
+    });
+  };
+
+  const removeAccess = (index: number) => {
+    if (formData.server_accesses.length > 1) {
+      setFormData({
+        ...formData,
+        server_accesses: formData.server_accesses.filter((_, i) => i !== index)
+      });
+    }
+  };
+
+  const updateAccess = (index: number, field: string, value: any) => {
+    const newAccesses = [...formData.server_accesses];
+    newAccesses[index] = { ...newAccesses[index], [field]: value };
+    
+    // Auto-populate if server_id changes
+    if (field === 'server_id') {
+      const selectedServer = servers.find(s => s.id.toString() === value.toString());
+      if (selectedServer) {
+        newAccesses[index].login = selectedServer.login || '';
+        newAccesses[index].password = selectedServer.password || '';
+      }
+    }
+    
+    setFormData({ ...formData, server_accesses: newAccesses });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    // Validation: Check if this login/password already has 3 clients
-    if (formData.login && formData.password) {
-      const existingCount = allClients.filter(c => 
-        c.login === formData.login && 
-        c.password === formData.password && 
-        c.id !== editingClient?.id
-      ).length;
+    // Validation: Check each access
+    for (const access of formData.server_accesses) {
+      if (access.login && access.password && access.server_id) {
+        // Count clients using this login/password on this server
+        const existingCount = allClients.filter(c => {
+          // Check old fields
+          const matchesOld = c.server_id === access.server_id && c.login === access.login && c.password === access.password;
+          // Check new array
+          const matchesNew = c.server_accesses?.some(a => a.server_id === access.server_id && a.login === access.login && a.password === access.password);
+          
+          return (matchesOld || matchesNew) && c.id !== editingClient?.id;
+        }).length;
 
-      if (existingCount >= 3) {
-        setError(`Atenção: O usuário "${formData.login}" já possui 3 clientes vinculados. Limite atingido.`);
-        return;
+        if (existingCount >= 3) {
+          setError(`Atenção: O usuário "${access.login}" já possui 3 clientes vinculados no servidor selecionado. Limite atingido.`);
+          return;
+        }
       }
     }
 
-    onSave(editingClient ? { ...formData, id: editingClient.id } : formData);
+    // Map the first access to the old fields for backward compatibility if needed, 
+    // but the main data is now in server_accesses
+    const firstAccess = formData.server_accesses[0];
+    const finalData = {
+      ...formData,
+      server_id: firstAccess?.server_id || null,
+      login: firstAccess?.login || '',
+      password: firstAccess?.password || '',
+    };
+
+    onSave(editingClient ? { ...finalData, id: editingClient.id } : finalData);
     onClose();
   };
 
@@ -174,66 +226,133 @@ function ClientForm({ editingClient, onSave, onClose, servers, allClients }: { e
           </div>
         </div>
 
-        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Acesso ao Servidor</h3>
-          
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Server className="w-4 h-4" /> Servidor
-            </label>
-            <select
-              required
-              value={formData.server_id}
-              onChange={(e) => {
-                const serverId = e.target.value;
-                const selectedServer = servers.find(s => s.id === serverId);
-                if (selectedServer) {
-                  setFormData({ 
-                    ...formData, 
-                    server_id: serverId,
-                    login: selectedServer.login || '',
-                    password: selectedServer.password || ''
-                  });
-                } else {
-                  setFormData({ ...formData, server_id: serverId });
-                }
-              }}
-              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Acessos aos Servidores</h3>
+            <button
+              type="button"
+              onClick={addAccess}
+              className="flex items-center gap-1 text-xs font-bold text-primary hover:underline"
             >
-              <option value="">Selecione um servidor</option>
-              {servers.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+              <Plus className="w-3 h-3" /> Adicionar Acesso
+            </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <User className="w-4 h-4" /> Login
-              </label>
-              <input
-                required
-                value={formData.login}
-                onChange={(e) => setFormData({ ...formData, login: e.target.value })}
-                className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                placeholder="Login"
-              />
+          {formData.server_accesses.map((access, index) => (
+            <div key={index} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4 relative">
+              {formData.server_accesses.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeAccess(index)}
+                  className="absolute top-4 right-4 p-1 text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+              
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                  <Server className="w-4 h-4" /> Servidor {index + 1}
+                </label>
+                <select
+                  required
+                  value={access.server_id}
+                  onChange={(e) => updateAccess(index, 'server_id', e.target.value)}
+                  className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                >
+                  <option value="">Selecione um servidor</option>
+                  {servers.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {access.server_id && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Logins em uso neste servidor:</label>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(new Set(allClients.filter(c => {
+                      const matchesOld = c.server_id?.toString() === access.server_id.toString();
+                      const matchesNew = c.server_accesses?.some(a => a.server_id?.toString() === access.server_id.toString());
+                      return matchesOld || matchesNew;
+                    }).flatMap(c => {
+                      const logins = [];
+                      if (c.server_id?.toString() === access.server_id.toString()) logins.push(c.login);
+                      c.server_accesses?.forEach(a => {
+                        if (a.server_id?.toString() === access.server_id.toString()) logins.push(a.login);
+                      });
+                      return logins;
+                    }))).map(login => {
+                      const count = allClients.reduce((acc, c) => {
+                        let cCount = 0;
+                        if (c.server_id?.toString() === access.server_id.toString() && c.login === login) cCount++;
+                        c.server_accesses?.forEach(a => {
+                          if (a.server_id?.toString() === access.server_id.toString() && a.login === login) cCount++;
+                        });
+                        return acc + cCount;
+                      }, 0);
+                      const isFull = count >= 3;
+                      return (
+                        <button
+                          key={login}
+                          type="button"
+                          disabled={isFull}
+                          onClick={() => {
+                            // Find any client that has this login on this server to get the password
+                            const clientWithThisLogin = allClients.find(c => {
+                              if (c.server_id?.toString() === access.server_id.toString() && c.login === login) return true;
+                              return c.server_accesses?.some(a => a.server_id?.toString() === access.server_id.toString() && a.login === login);
+                            });
+                            if (clientWithThisLogin) {
+                              const targetAccess = clientWithThisLogin.server_id?.toString() === access.server_id.toString() && clientWithThisLogin.login === login
+                                ? { login: clientWithThisLogin.login, password: clientWithThisLogin.password }
+                                : clientWithThisLogin.server_accesses?.find(a => a.server_id?.toString() === access.server_id.toString() && a.login === login);
+                              
+                              if (targetAccess) {
+                                updateAccess(index, 'login', targetAccess.login);
+                                updateAccess(index, 'password', targetAccess.password);
+                              }
+                            }
+                          }}
+                          className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${isFull ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-primary/10 text-primary border-primary/20 hover:bg-primary hover:text-white'}`}
+                        >
+                          {login} ({count}/3)
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                    <User className="w-4 h-4" /> Login
+                  </label>
+                  <input
+                    required
+                    value={access.login}
+                    onChange={(e) => updateAccess(index, 'login', e.target.value)}
+                    className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                    placeholder="Login"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                    <Lock className="w-4 h-4" /> Senha
+                  </label>
+                  <input
+                    required
+                    type="password"
+                    value={access.password}
+                    onChange={(e) => updateAccess(index, 'password', e.target.value)}
+                    className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                    placeholder="Senha"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                <Lock className="w-4 h-4" /> Senha
-              </label>
-              <input
-                required
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                placeholder="Senha"
-              />
-            </div>
-          </div>
+          ))}
         </div>
 
         <div className="space-y-2">
