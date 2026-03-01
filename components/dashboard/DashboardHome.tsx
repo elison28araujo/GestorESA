@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import { motion } from 'motion/react';
+import { supabase } from '@/lib/supabase';
 
 const stats = [
   { label: 'Clientes Ativos', value: '1,284', change: '+12%', icon: Users, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
@@ -28,9 +29,20 @@ interface DashboardHomeProps {
 }
 
 export default function DashboardHome({ customers, setCustomers, StatusBadge }: DashboardHomeProps) {
-  const handleDeleteClient = (id: number) => {
+  const handleDeleteClient = async (id: any) => {
     if (confirm('Tem certeza que deseja excluir este cliente?')) {
-      setCustomers(prev => prev.filter(c => c.id !== id));
+      try {
+        const { error } = await supabase
+          .from('customers')
+          .delete()
+          .eq('id', id);
+
+        if (error) throw error;
+        setCustomers(prev => prev.filter(c => c.id !== id));
+      } catch (error) {
+        console.error('Error deleting client from Supabase:', error);
+        setCustomers(prev => prev.filter(c => c.id !== id));
+      }
     }
   };
   return (

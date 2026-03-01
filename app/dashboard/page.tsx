@@ -17,24 +17,21 @@ import {
 } from 'lucide-react';
 import DashboardHome from '@/components/dashboard/DashboardHome';
 import ClientsSection from '@/components/dashboard/ClientsSection';
-import ChannelsSection from '@/components/dashboard/ChannelsSection';
+import ServersSection from '@/components/dashboard/ServersSection';
 import FinanceSection from '@/components/dashboard/FinanceSection';
 import SettingsSection from '@/components/dashboard/SettingsSection';
 import { supabase } from '@/lib/supabase';
 
 const initialCustomers = [
-  { id: 1, name: 'João Silva', email: 'joao@exemplo.com', plan: 'Premium 4K', status: 'Ativo', expiry: '20/03/2024', image: 'https://picsum.photos/seed/joao/40/40' },
-  { id: 2, name: 'Maria Oliveira', email: 'maria@exemplo.com', plan: 'Standard HD', status: 'Vencendo', expiry: '02/03/2024', image: 'https://picsum.photos/seed/maria/40/40' },
-  { id: 3, name: 'Pedro Santos', email: 'pedro@exemplo.com', plan: 'Basic SD', status: 'Inativo', expiry: '15/02/2024', image: 'https://picsum.photos/seed/pedro/40/40' },
-  { id: 4, name: 'Ana Costa', email: 'ana@exemplo.com', plan: 'Premium 4K', status: 'Ativo', expiry: '12/04/2024', image: 'https://picsum.photos/seed/ana/40/40' },
-  { id: 5, name: 'Lucas Lima', email: 'lucas@exemplo.com', plan: 'Standard HD', status: 'Ativo', expiry: '28/03/2024', image: 'https://picsum.photos/seed/lucas/40/40' },
+  { id: 1, name: 'João Silva', email: 'joao@exemplo.com', plan: 'Premium 4K', status: 'Ativo', expiry: '20/03/2024', image: 'https://picsum.photos/seed/joao/40/40', server_id: null, login: '', password: '' },
+  { id: 2, name: 'Maria Oliveira', email: 'maria@exemplo.com', plan: 'Standard HD', status: 'Vencendo', expiry: '02/03/2024', image: 'https://picsum.photos/seed/maria/40/40', server_id: null, login: '', password: '' },
+  { id: 3, name: 'Pedro Santos', email: 'pedro@exemplo.com', plan: 'Basic SD', status: 'Inativo', expiry: '15/02/2024', image: 'https://picsum.photos/seed/pedro/40/40', server_id: null, login: '', password: '' },
+  { id: 4, name: 'Ana Costa', email: 'ana@exemplo.com', plan: 'Premium 4K', status: 'Ativo', expiry: '12/04/2024', image: 'https://picsum.photos/seed/ana/40/40', server_id: null, login: '', password: '' },
+  { id: 5, name: 'Lucas Lima', email: 'lucas@exemplo.com', plan: 'Standard HD', status: 'Ativo', expiry: '28/03/2024', image: 'https://picsum.photos/seed/lucas/40/40', server_id: null, login: '', password: '' },
 ];
 
-const initialChannels = [
-  { id: 1, title: 'HBO HD', type: 'Canal', category: 'Premium', status: 'Online', bitrate: '8.5 Mbps' },
-  { id: 2, title: 'Dune: Part Two', type: 'Filme', category: 'Sci-Fi', status: '4K', bitrate: '25 Mbps' },
-  { id: 3, title: 'The Last of Us', type: 'Série', category: 'Drama', status: 'HD', bitrate: '12 Mbps' },
-  { id: 4, title: 'Globo RJ HD', type: 'Canal', category: 'Aberto', status: 'Online', bitrate: '6.2 Mbps' },
+const initialServers = [
+  { id: 1, name: 'Servidor Principal', login: 'admin', password: 'password123', max_clients_per_user: 3, status: 'Online' },
 ];
 
 const initialTransactions = [
@@ -49,7 +46,7 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSection, setActiveSection] = useState('dashboard');
   const [customers, setCustomers] = useState<any[]>(initialCustomers);
-  const [channels, setChannels] = useState<any[]>(initialChannels);
+  const [servers, setServers] = useState<any[]>(initialServers);
   const [transactions, setTransactions] = useState<any[]>(initialTransactions);
 
   useEffect(() => {
@@ -58,8 +55,8 @@ export default function DashboardPage() {
         const { data: customersData } = await supabase.from('customers').select('*');
         if (customersData && customersData.length > 0) setCustomers(customersData);
 
-        const { data: channelsData } = await supabase.from('channels').select('*');
-        if (channelsData && channelsData.length > 0) setChannels(channelsData);
+        const { data: serversData } = await supabase.from('servers').select('*');
+        if (serversData && serversData.length > 0) setServers(serversData);
 
         const { data: transactionsData } = await supabase.from('transactions').select('*');
         if (transactionsData && transactionsData.length > 0) setTransactions(transactionsData);
@@ -76,9 +73,9 @@ export default function DashboardPage() {
       case 'dashboard':
         return <DashboardHome customers={customers} setCustomers={setCustomers} StatusBadge={StatusBadge} />;
       case 'clients':
-        return <ClientsSection customers={customers} setCustomers={setCustomers} StatusBadge={StatusBadge} />;
-      case 'channels':
-        return <ChannelsSection channels={channels} setChannels={setChannels} />;
+        return <ClientsSection customers={customers} setCustomers={setCustomers} servers={servers} StatusBadge={StatusBadge} />;
+      case 'servers':
+        return <ServersSection servers={servers} setServers={setServers} />;
       case 'finance':
         return <FinanceSection transactions={transactions} setTransactions={setTransactions} />;
       case 'settings':
@@ -116,10 +113,10 @@ export default function DashboardPage() {
           />
           <SidebarItem 
             icon={Tv} 
-            label="Canais & VOD" 
-            active={activeSection === 'channels'}
+            label="Servidores" 
+            active={activeSection === 'servers'}
             sidebarOpen={sidebarOpen} 
-            onClick={() => setActiveSection('channels')}
+            onClick={() => setActiveSection('servers')}
           />
           <SidebarItem 
             icon={CreditCard} 

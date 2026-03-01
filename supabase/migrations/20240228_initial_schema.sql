@@ -1,3 +1,14 @@
+-- Create Servers table (formerly channels)
+CREATE TABLE IF NOT EXISTS servers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  login TEXT NOT NULL,
+  password TEXT NOT NULL,
+  max_clients_per_user INTEGER DEFAULT 3,
+  status TEXT DEFAULT 'Online',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- Create Customers table
 CREATE TABLE IF NOT EXISTS customers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -7,17 +18,9 @@ CREATE TABLE IF NOT EXISTS customers (
   status TEXT NOT NULL,
   expiry DATE NOT NULL,
   image TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- Create Channels table
-CREATE TABLE IF NOT EXISTS channels (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title TEXT NOT NULL,
-  type TEXT NOT NULL,
-  category TEXT NOT NULL,
-  status TEXT NOT NULL,
-  bitrate TEXT NOT NULL,
+  server_id UUID REFERENCES servers(id),
+  login TEXT,
+  password TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -33,22 +36,20 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Enable Row Level Security (RLS)
+ALTER TABLE servers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE channels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for public access (for demo purposes)
--- In a real app, you would restrict this to authenticated users
+CREATE POLICY "Allow public read access on servers" ON servers FOR SELECT USING (true);
+CREATE POLICY "Allow public insert access on servers" ON servers FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update access on servers" ON servers FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete access on servers" ON servers FOR DELETE USING (true);
+
 CREATE POLICY "Allow public read access on customers" ON customers FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on customers" ON customers FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on customers" ON customers FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete access on customers" ON customers FOR DELETE USING (true);
-
-CREATE POLICY "Allow public read access on channels" ON channels FOR SELECT USING (true);
-CREATE POLICY "Allow public insert access on channels" ON channels FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update access on channels" ON channels FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete access on channels" ON channels FOR DELETE USING (true);
 
 CREATE POLICY "Allow public read access on transactions" ON transactions FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on transactions" ON transactions FOR INSERT WITH CHECK (true);
