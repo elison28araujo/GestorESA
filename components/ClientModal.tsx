@@ -1,354 +1,520 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { useEffect, useMemo, useState } from 'react';
+import { X, User, Mail, Tv, Calendar, ShieldCheck, Server, Lock, Plus, Trash2, Phone } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { supabase } from '@/lib/supabase';
+
+/**
+ * IMPORTANTE:
+ * - No Supabase, o campo customers.expiry deve ser do tipo DATE.
+ * - O Supabase retorna DATE como string ISO: 'YYYY-MM-DD'.
+ * - Aqui usamos <input type="date"> pra salvar sem erro.
+ */
 
 type Plan = {
   id: string;
   name: string;
   months: number;
-  price: number;
+  value: number;
 };
 
-type ServerItem = {
-  id: string;
-  name?: string;
-  url?: string;
-};
-
-type ClientData = {
-  id?: any;
+interface Client {
+  id: any;
   name: string;
   email: string;
   phone?: string;
 
-  // compat antigo
-  plan?: string;
-
-  // novo (recomendado)
+  plan: string;
+  // opcional (se você criar no banco)
   plan_id?: string | null;
-  plan_name?: string | null;
   plan_months?: number | null;
-  plan_price?: number | null;
+  plan_value?: number | null;
 
   status: string;
+  // ISO date: YYYY-MM-DD
   expiry: string;
 
-  server_id?: string | null;
-  login?: string;
-  password?: string;
-  server_accesses?: any;
-};
-
-function formatDateBR(d: Date) {
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+  image: string;
+  server_id: any;
+  login: string;
+  password: string;
+  server_accesses?: { server_id: any; login: string; password: string }[];
 }
 
-function addMonthsSafe(date: Date, months: number) {
-  // soma meses preservando o dia sempre que possível
-  const d = new Date(date);
-  const day = d.getDate();
-  d.setMonth(d.getMonth() + months);
+interface ClientModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (client: any) => void;
+  editingClient?: Client | null;
+  servers: any[];
+  allClients: Client[];
+}
 
-  // se “estourou” para o mês seguinte (ex: 31/01 + 1 mês), ajusta para o último dia do mês correto
-  if (d.getDate() !== day) {
-    d.setDate(0);
+function addMonthsISO(isoDate: string, months: number) {
+  const d = isoDate ? new Date(`${isoDate}T00:00:00`) : new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setMonth(d.getMonth() + Math.max(1, Number(months) || 1));
+  return d.toISOString().slice(0, 10);
+}
+
+function getDefaultExpiryISO(months = 1) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setMonth(d.getMonth() + Math.max(1, Number(months) || 1));
+  return d.toISOString().slice(0, 10);
+}
+
+function normalizeExpiryToISO(raw: any) {
+  if (!raw) return '';
+  if (typeof raw !== 'string') return '';
+  // vem dd/mm/aaaa de versões antigas
+  if (raw.includes('/')) {
+    const [dd, mm, yyyy] = raw.split('/');
+    if (!dd || !mm || !yyyy) return '';
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
   }
-
-  return d;
+  // já deve ser ISO
+  return raw;
 }
 
-export default function ClientModal({
-  isOpen,
-  onClose,
-  onSave,
+export default function ClientModal({ isOpen, onClose, onSave, editingClient, servers, allClients }: ClientModalProps) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+          />
+          <motion.div
+            key={editingClient?.id || 'new'}
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+          >
+            <ClientForm
+              editingClient={editingClient}
+              onSave={onSave}
+              onClose={onClose}
+              servers={servers}
+              allClients={allClients}
+            />
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function ClientForm({
   editingClient,
+  onSave,
+  onClose,
   servers,
   allClients,
 }: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (data: ClientData) => void;
-  editingClient?: any;
-  servers: ServerItem[];
-  allClients: any[];
+  editingClient?: Client | null;
+  onSave: any;
+  onClose: any;
+  servers: any[];
+  allClients: Client[];
 }) {
-  const [loadingPlans, setLoadingPlans] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [form, setForm] = useState<ClientData>(() => ({
-    id: editingClient?.id,
-    name: editingClient?.name ?? "",
-    email: editingClient?.email ?? "",
-    phone: editingClient?.phone ?? "",
-    plan: editingClient?.plan ?? "",
-    plan_id: editingClient?.plan_id ?? null,
-    plan_name: editingClient?.plan_name ?? null,
-    plan_months: editingClient?.plan_months ?? null,
-    plan_price: editingClient?.plan_price ?? null,
-    status: editingClient?.status ?? "Ativo",
-    expiry: editingClient?.expiry ?? "",
-    server_id: editingClient?.server_id ?? null,
-    login: editingClient?.login ?? "",
-    password: editingClient?.password ?? "",
-    server_accesses: editingClient?.server_accesses ?? [],
-  }));
+  const [formData, setFormData] = useState(() => {
+    const isoExpiry = normalizeExpiryToISO((editingClient as any)?.expiry);
 
-  // quando abrir modal, atualiza form com cliente sendo editado
+    return {
+      name: editingClient?.name || '',
+      email: editingClient?.email || '',
+      phone: editingClient?.phone || '',
+
+      plan: editingClient?.plan || '',
+      plan_id: (editingClient as any)?.plan_id ?? null,
+      plan_months: (editingClient as any)?.plan_months ?? null,
+      plan_value: (editingClient as any)?.plan_value ?? null,
+
+      status: editingClient?.status || 'Ativo',
+      expiry: isoExpiry || (editingClient ? '' : getDefaultExpiryISO(1)),
+
+      server_accesses:
+        editingClient?.server_accesses && editingClient.server_accesses.length > 0
+          ? editingClient.server_accesses
+          : editingClient?.server_id
+            ? [{ server_id: editingClient.server_id, login: editingClient.login, password: editingClient.password }]
+            : [{ server_id: '', login: '', password: '' }],
+    };
+  });
+
+  // ao abrir modal, sincroniza com o editingClient
   useEffect(() => {
-    if (!isOpen) return;
+    const isoExpiry = normalizeExpiryToISO((editingClient as any)?.expiry);
+    setFormData({
+      name: editingClient?.name || '',
+      email: editingClient?.email || '',
+      phone: editingClient?.phone || '',
 
-    setForm({
-      id: editingClient?.id,
-      name: editingClient?.name ?? "",
-      email: editingClient?.email ?? "",
-      phone: editingClient?.phone ?? "",
-      plan: editingClient?.plan ?? "",
-      plan_id: editingClient?.plan_id ?? null,
-      plan_name: editingClient?.plan_name ?? null,
-      plan_months: editingClient?.plan_months ?? null,
-      plan_price: editingClient?.plan_price ?? null,
-      status: editingClient?.status ?? "Ativo",
-      expiry: editingClient?.expiry ?? "",
-      server_id: editingClient?.server_id ?? null,
-      login: editingClient?.login ?? "",
-      password: editingClient?.password ?? "",
-      server_accesses: editingClient?.server_accesses ?? [],
+      plan: editingClient?.plan || '',
+      plan_id: (editingClient as any)?.plan_id ?? null,
+      plan_months: (editingClient as any)?.plan_months ?? null,
+      plan_value: (editingClient as any)?.plan_value ?? null,
+
+      status: editingClient?.status || 'Ativo',
+      expiry: isoExpiry || (editingClient ? '' : getDefaultExpiryISO(1)),
+
+      server_accesses:
+        editingClient?.server_accesses && editingClient.server_accesses.length > 0
+          ? editingClient.server_accesses
+          : editingClient?.server_id
+            ? [{ server_id: editingClient.server_id, login: editingClient.login, password: editingClient.password }]
+            : [{ server_id: '', login: '', password: '' }],
     });
-  }, [isOpen, editingClient]);
+  }, [editingClient]);
 
-  // buscar planos do Supabase
+  // buscar planos
   useEffect(() => {
-    if (!isOpen) return;
-
     const fetchPlans = async () => {
       setLoadingPlans(true);
-
       const { data, error } = await supabase
-        .from("plans")
-        .select("id, name, months, price")
-        .order("price", { ascending: true });
+        .from('plans')
+        .select('id, name, months, value')
+        .order('value', { ascending: true });
 
       if (error) {
-        console.error("Erro ao buscar planos:", error);
+        console.error('Erro ao buscar planos:', error);
         setPlans([]);
-      } else {
-        setPlans(
-          ((data as any[]) ?? []).map((p) => ({
-            id: p.id,
-            name: p.name,
-            months: Number(p.months ?? 1),
-            price: Number(p.price ?? 0),
-          }))
-        );
+        setLoadingPlans(false);
+        return;
+      }
+
+      const normalized: Plan[] = (data as any[] | null)?.map((p) => ({
+        id: p.id,
+        name: p.name,
+        months: Number(p.months ?? 1),
+        value: Number(p.value ?? 0),
+      })) ?? [];
+
+      setPlans(normalized);
+
+      // default plan (novo cliente)
+      if (!editingClient && normalized.length > 0 && !formData.plan_id) {
+        const p0 = normalized[0];
+        setFormData((prev: any) => ({
+          ...prev,
+          plan: p0.name,
+          plan_id: p0.id,
+          plan_months: p0.months,
+          plan_value: p0.value,
+          expiry: prev.expiry || getDefaultExpiryISO(p0.months),
+        }));
       }
 
       setLoadingPlans(false);
     };
 
     fetchPlans();
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selectedPlan = useMemo(() => {
-    if (!form.plan_id) return null;
-    return plans.find((p) => p.id === form.plan_id) ?? null;
-  }, [plans, form.plan_id]);
+    if (!formData.plan_id) return null;
+    return plans.find((p) => p.id === formData.plan_id) ?? null;
+  }, [plans, formData.plan_id]);
 
-  const money = (v: number) =>
-    Number(v ?? 0).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
+  const money = (v: number) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  if (!isOpen) return null;
+  const addAccess = () => {
+    setFormData((prev: any) => ({
+      ...prev,
+      server_accesses: [...prev.server_accesses, { server_id: '', login: '', password: '' }],
+    }));
+  };
+
+  const removeAccess = (index: number) => {
+    if (formData.server_accesses.length <= 1) return;
+    setFormData((prev: any) => ({
+      ...prev,
+      server_accesses: prev.server_accesses.filter((_: any, i: number) => i !== index),
+    }));
+  };
+
+  const updateAccess = (index: number, field: string, value: any) => {
+    const newAccesses = [...formData.server_accesses];
+    newAccesses[index] = { ...newAccesses[index], [field]: value };
+
+    // auto-preencher login/senha do servidor, se existirem
+    if (field === 'server_id') {
+      const selectedServer = servers.find((s) => s.id?.toString() === value?.toString());
+      if (selectedServer) {
+        newAccesses[index].login = selectedServer.login || '';
+        newAccesses[index].password = selectedServer.password || '';
+      }
+    }
+
+    setFormData((prev: any) => ({ ...prev, server_accesses: newAccesses }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    // validação: cada login/senha no mesmo server pode ter no máximo 3 clientes
+    for (const access of formData.server_accesses) {
+      if (access.login && access.password && access.server_id) {
+        const existingCount = allClients.filter((c) => {
+          const matchesOld = c.server_id === access.server_id && c.login === access.login && c.password === access.password;
+          const matchesNew = c.server_accesses?.some((a) => a.server_id === access.server_id && a.login === access.login && a.password === access.password);
+          return (matchesOld || matchesNew) && c.id !== editingClient?.id;
+        }).length;
+
+        if (existingCount >= 3) {
+          setError(`Atenção: o usuário "${access.login}" já possui 3 clientes vinculados no servidor selecionado. Limite atingido.`);
+          return;
+        }
+      }
+    }
+
+    const firstAccess = formData.server_accesses[0];
+
+    const finalData = {
+      ...formData,
+      // compat antigo
+      server_id: firstAccess?.server_id || null,
+      login: firstAccess?.login || '',
+      password: firstAccess?.password || '',
+
+      // plan compat
+      plan: selectedPlan?.name ?? formData.plan,
+      plan_id: selectedPlan?.id ?? formData.plan_id,
+      plan_months: selectedPlan?.months ?? formData.plan_months,
+      plan_value: selectedPlan?.value ?? formData.plan_value,
+    };
+
+    onSave(editingClient ? { ...finalData, id: editingClient.id } : finalData);
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b p-4">
-          <h2 className="text-lg font-semibold">
-            {form.id ? "Editar Cliente" : "Novo Cliente"}
-          </h2>
-          <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100">
-            <X size={18} />
-          </button>
+    <>
+      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">{editingClient ? 'Editar Cliente' : 'Novo Cliente'}</h2>
+        <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+          <X className="w-5 h-5 text-slate-500" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        {error && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-3 bg-red-100 border border-red-200 text-red-600 rounded-lg text-sm font-bold">
+            {error}
+          </motion.div>
+        )}
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <User className="w-4 h-4" /> Nome Completo
+          </label>
+          <input
+            required
+            value={formData.name}
+            onChange={(e) => setFormData((p: any) => ({ ...p, name: e.target.value }))}
+            className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            placeholder="Ex: João Silva"
+          />
         </div>
 
-        <div className="max-h-[75vh] overflow-y-auto p-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <label className="text-sm text-gray-600">Nome Completo</label>
-              <input
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.name}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, name: e.target.value }))
-                }
-              />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Mail className="w-4 h-4" /> Email
+            </label>
+            <input
+              required
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData((p: any) => ({ ...p, email: e.target.value }))}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+              placeholder="exemplo@email.com"
+            />
+          </div>
 
-            <div>
-              <label className="text-sm text-gray-600">Email</label>
-              <input
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.email}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, email: e.target.value }))
-                }
-              />
-            </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Phone className="w-4 h-4" /> Telefone
+            </label>
+            <input
+              value={formData.phone}
+              onChange={(e) => setFormData((p: any) => ({ ...p, phone: e.target.value }))}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+              placeholder="(DD) 9XXXX-XXXX"
+            />
+          </div>
 
-            <div>
-              <label className="text-sm text-gray-600">Telefone</label>
-              <input
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.phone ?? ""}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, phone: e.target.value }))
-                }
-              />
-            </div>
-
-            <div>
-              <label className="text-sm text-gray-600">Plano</label>
-              <select
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.plan_id ?? ""}
-                onChange={(e) => {
-                  const id = e.target.value || null;
-                  const p = plans.find((x) => x.id === id) ?? null;
-
-                  // ✅ Vencimento automático baseado no plano (se estiver vazio OU se estiver criando novo cliente)
-                  const shouldAutoFillExpiry =
-                    !form.expiry || !form.id; // se estiver criando, auto sempre
-                  const newExpiry = p && shouldAutoFillExpiry
-                    ? formatDateBR(addMonthsSafe(new Date(), Number(p.months ?? 1)))
-                    : form.expiry;
-
-                  setForm((prev) => ({
-                    ...prev,
-                    plan_id: id,
-                    plan_name: p?.name ?? null,
-                    plan_months: p?.months ?? null,
-                    plan_price: p?.price ?? null,
-
-                    // compat antigo (se ainda usa "plan" string)
-                    plan: p?.name ?? prev.plan ?? "",
-
-                    expiry: newExpiry,
-                  }));
-                }}
-              >
-                <option value="">
-                  {loadingPlans ? "Carregando planos..." : "Selecione um plano"}
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Tv className="w-4 h-4" /> Plano
+            </label>
+            <select
+              required
+              value={formData.plan_id ?? ''}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                const p = plans.find((x) => x.id === id) ?? null;
+                setFormData((prev: any) => ({
+                  ...prev,
+                  plan_id: id,
+                  plan: p?.name ?? prev.plan,
+                  plan_months: p?.months ?? prev.plan_months,
+                  plan_value: p?.value ?? prev.plan_value,
+                  expiry: prev.expiry || getDefaultExpiryISO(p?.months ?? 1),
+                }));
+              }}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            >
+              <option value="">{loadingPlans ? 'Carregando planos...' : 'Selecione um plano'}</option>
+              {plans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} — {money(p.value)} / {p.months} mês(es)
                 </option>
+              ))}
+            </select>
+            {selectedPlan && (
+              <div className="text-xs text-slate-500">
+                <b>Valor:</b> {money(selectedPlan.value)} &nbsp;|&nbsp; <b>Duração:</b> {selectedPlan.months} mês(es)
+              </div>
+            )}
+          </div>
 
-                {plans.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — {money(p.price)} / {p.months} mês(es)
-                  </option>
-                ))}
-              </select>
-
-              {selectedPlan && (
-                <div className="mt-2 text-sm text-gray-700">
-                  <b>Valor:</b> {money(selectedPlan.price)} &nbsp;|&nbsp;
-                  <b>Duração:</b> {selectedPlan.months} mês(es)
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm text-gray-600">Vencimento</label>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Calendar className="w-4 h-4" /> Vencimento
+            </label>
+            <div className="flex gap-2">
               <input
-                className="mt-1 w-full rounded-lg border p-2"
-                placeholder="DD/MM/AAAA"
-                value={form.expiry}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, expiry: e.target.value }))
-                }
+                required
+                type="date"
+                value={formData.expiry}
+                onChange={(e) => setFormData((p: any) => ({ ...p, expiry: e.target.value }))}
+                className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
               />
-              <p className="mt-1 text-[11px] text-gray-500">
-                Dica: ao selecionar o plano, o vencimento pode ser preenchido automaticamente.
-              </p>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm text-gray-600">Servidor</label>
-              <select
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.server_id ?? ""}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, server_id: e.target.value || null }))
-                }
+              <button
+                type="button"
+                onClick={() => {
+                  const m = formData.plan_months ?? selectedPlan?.months ?? 1;
+                  setFormData((p: any) => ({ ...p, expiry: addMonthsISO(p.expiry || getDefaultExpiryISO(1), m) }));
+                }}
+                className="shrink-0 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold"
+                title="Renovar somando meses do plano"
               >
-                <option value="">Selecione um servidor</option>
-                {(servers ?? []).map((s: any) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name ?? s.url ?? `Servidor ${s.id}`}
-                  </option>
-                ))}
-              </select>
+                +{formData.plan_months ?? selectedPlan?.months ?? 1}m
+              </button>
             </div>
+          </div>
 
-            <div>
-              <label className="text-sm text-gray-600">Login</label>
-              <input
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.login ?? ""}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, login: e.target.value }))
-                }
-              />
-            </div>
-
-            <div>
-              <label className="text-sm text-gray-600">Senha</label>
-              <input
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.password ?? ""}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, password: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm text-gray-600">Status</label>
-              <select
-                className="mt-1 w-full rounded-lg border p-2"
-                value={form.status}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, status: e.target.value }))
-                }
-              >
-                <option value="Ativo">Ativo</option>
-                <option value="Vencido">Vencido</option>
-                <option value="Pausado">Pausado</option>
-              </select>
-            </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" /> Status
+            </label>
+            <select
+              value={formData.status}
+              onChange={(e) => setFormData((p: any) => ({ ...p, status: e.target.value }))}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            >
+              <option value="Ativo">Ativo</option>
+              <option value="Vencendo">Vencendo</option>
+              <option value="Inativo">Inativo</option>
+            </select>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t p-4">
-          <button
-            onClick={onClose}
-            className="rounded-lg border px-4 py-2 hover:bg-gray-50"
-          >
+        <div className="space-y-2 pt-2">
+          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Server className="w-4 h-4" /> Acessos (Servidor/Login)
+            </span>
+            <button type="button" onClick={addAccess} className="text-primary font-bold text-sm flex items-center gap-1">
+              <Plus className="w-4 h-4" /> Adicionar Acesso
+            </button>
+          </label>
+
+          <div className="space-y-3">
+            {formData.server_accesses.map((access: any, idx: number) => (
+              <div key={idx} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-1">
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300">Servidor</label>
+                    <select
+                      value={access.server_id || ''}
+                      onChange={(e) => updateAccess(idx, 'server_id', e.target.value)}
+                      className="mt-1 w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                    >
+                      <option value="">Selecione</option>
+                      {(servers ?? []).map((s: any) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name ?? s.url ?? `Servidor ${s.id}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300">Login</label>
+                    <div className="relative mt-1">
+                      <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        value={access.login}
+                        onChange={(e) => updateAccess(idx, 'login', e.target.value)}
+                        className="w-full pl-10 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        placeholder="login"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300">Senha</label>
+                    <div className="relative mt-1">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        value={access.password}
+                        onChange={(e) => updateAccess(idx, 'password', e.target.value)}
+                        className="w-full pl-10 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        placeholder="senha"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => removeAccess(idx)}
+                    className="text-red-500 hover:text-red-600 text-sm font-bold flex items-center gap-1"
+                    disabled={formData.server_accesses.length <= 1}
+                  >
+                    <Trash2 className="w-4 h-4" /> Remover
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="pt-4 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="px-4 py-3 rounded-xl font-bold border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
             Cancelar
           </button>
-          <button
-            onClick={() => onSave(form)}
-            className="rounded-lg bg-orange-600 px-4 py-2 font-semibold text-white hover:bg-orange-700"
-          >
-            {form.id ? "Salvar Alterações" : "Cadastrar Cliente"}
+          <button type="submit" className="px-4 py-3 rounded-xl font-bold bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20">
+            {editingClient ? 'Salvar Alterações' : 'Cadastrar Cliente'}
           </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </>
   );
 }
