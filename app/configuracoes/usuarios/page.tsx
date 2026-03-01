@@ -50,7 +50,7 @@ export default function AdminUsersPage() {
   async function fetchUsers() {
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.getSession();
+      const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
 
       const res = await fetch("/api/admin/users", {
@@ -287,7 +287,9 @@ export default function AdminUsersPage() {
                         }
                         className="rounded-lg border px-3 py-1 hover:bg-gray-50"
                       >
-                        {u.profile?.role === "admin" ? "Tirar admin" : "Tornar admin"}
+                        {u.profile?.role === "admin"
+                          ? "Tirar admin"
+                          : "Tornar admin"}
                       </button>
 
                       <button
