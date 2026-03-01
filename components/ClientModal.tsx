@@ -1,440 +1,354 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { X, User, Mail, Tv, Calendar, ShieldCheck, Server, Lock, Plus, Trash2, Phone } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { supabase } from '@/lib/supabase';
+import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
-interface Client {
-  id: any;
+type Plan = {
+  id: string;
+  name: string;
+  months: number;
+  price: number;
+};
+
+type ServerItem = {
+  id: string;
+  name?: string;
+  url?: string;
+};
+
+type ClientData = {
+  id?: any;
   name: string;
   email: string;
   phone?: string;
-  plan: string;
+
+  // compat antigo
+  plan?: string;
+
+  // novo (recomendado)
+  plan_id?: string | null;
+  plan_name?: string | null;
+  plan_months?: number | null;
+  plan_price?: number | null;
+
   status: string;
   expiry: string;
-  image: string;
-  server_id: any;
-  login: string;
-  password: string;
-  server_accesses?: { server_id: any, login: string, password: string }[];
+
+  server_id?: string | null;
+  login?: string;
+  password?: string;
+  server_accesses?: any;
+};
+
+function formatDateBR(d: Date) {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
-interface ClientModalProps {
-// ... (rest of the interface)
+function addMonthsSafe(date: Date, months: number) {
+  // soma meses preservando o dia sempre que possível
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+
+  // se “estourou” para o mês seguinte (ex: 31/01 + 1 mês), ajusta para o último dia do mês correto
+  if (d.getDate() !== day) {
+    d.setDate(0);
+  }
+
+  return d;
+}
+
+export default function ClientModal({
+  isOpen,
+  onClose,
+  onSave,
+  editingClient,
+  servers,
+  allClients,
+}: {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (client: any) => void;
-  editingClient?: Client | null;
-  servers: any[];
-  allClients: Client[]; // Needed for validation
-}
+  onSave: (data: ClientData) => void;
+  editingClient?: any;
+  servers: ServerItem[];
+  allClients: any[];
+}) {
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [plans, setPlans] = useState<Plan[]>([]);
 
-export default function ClientModal({ isOpen, onClose, onSave, editingClient, servers, allClients }: ClientModalProps) {
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-          />
-          <motion.div
-            key={editingClient?.id || 'new'}
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
-          >
-            <ClientForm 
-              editingClient={editingClient} 
-              onSave={onSave} 
-              onClose={onClose} 
-              servers={servers} 
-              allClients={allClients}
-            />
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
-  );
-}
+  const [form, setForm] = useState<ClientData>(() => ({
+    id: editingClient?.id,
+    name: editingClient?.name ?? "",
+    email: editingClient?.email ?? "",
+    phone: editingClient?.phone ?? "",
+    plan: editingClient?.plan ?? "",
+    plan_id: editingClient?.plan_id ?? null,
+    plan_name: editingClient?.plan_name ?? null,
+    plan_months: editingClient?.plan_months ?? null,
+    plan_price: editingClient?.plan_price ?? null,
+    status: editingClient?.status ?? "Ativo",
+    expiry: editingClient?.expiry ?? "",
+    server_id: editingClient?.server_id ?? null,
+    login: editingClient?.login ?? "",
+    password: editingClient?.password ?? "",
+    server_accesses: editingClient?.server_accesses ?? [],
+  }));
 
-function ClientForm({ editingClient, onSave, onClose, servers, allClients }: { editingClient?: Client | null, onSave: any, onClose: any, servers: any[], allClients: Client[] }) {
-  const [plans, setPlans] = useState<any[]>([]);
-  
-  const getDefaultExpiry = () => {
-    const date = new Date();
-    date.setDate(date.getDate() + 30);
-    return date.toISOString().split('T')[0].split('-').reverse().join('/');
-  };
-
-  const [formData, setFormData] = useState({
-    name: editingClient?.name || '',
-    email: editingClient?.email || '',
-    phone: editingClient?.phone || '',
-    plan: editingClient?.plan || '',
-    status: editingClient?.status || 'Ativo',
-    expiry: editingClient?.expiry || (editingClient ? '' : getDefaultExpiry()),
-    server_accesses: editingClient?.server_accesses && editingClient.server_accesses.length > 0
-      ? editingClient.server_accesses 
-      : (editingClient?.server_id 
-          ? [{ server_id: editingClient.server_id, login: editingClient.login, password: editingClient.password }] 
-          : [{ server_id: '', login: '', password: '' }]),
-  });
-
+  // quando abrir modal, atualiza form com cliente sendo editado
   useEffect(() => {
-    const fetchPlans = async () => {
-      const { data } = await supabase.from('plans').select('*');
-      if (data) {
-        setPlans(data);
-        // Only set default plan if not editing and no plan is selected
-        if (!editingClient && !formData.plan && data.length > 0) {
-          setFormData(prev => ({ ...prev, plan: data[0].name }));
-        }
-      }
-    };
-    fetchPlans();
-  }, [editingClient, formData.plan]);
+    if (!isOpen) return;
 
-  const [error, setError] = useState<string | null>(null);
-
-  const addAccess = () => {
-    setFormData({
-      ...formData,
-      server_accesses: [...formData.server_accesses, { server_id: '', login: '', password: '' }]
+    setForm({
+      id: editingClient?.id,
+      name: editingClient?.name ?? "",
+      email: editingClient?.email ?? "",
+      phone: editingClient?.phone ?? "",
+      plan: editingClient?.plan ?? "",
+      plan_id: editingClient?.plan_id ?? null,
+      plan_name: editingClient?.plan_name ?? null,
+      plan_months: editingClient?.plan_months ?? null,
+      plan_price: editingClient?.plan_price ?? null,
+      status: editingClient?.status ?? "Ativo",
+      expiry: editingClient?.expiry ?? "",
+      server_id: editingClient?.server_id ?? null,
+      login: editingClient?.login ?? "",
+      password: editingClient?.password ?? "",
+      server_accesses: editingClient?.server_accesses ?? [],
     });
-  };
+  }, [isOpen, editingClient]);
 
-  const removeAccess = (index: number) => {
-    if (formData.server_accesses.length > 1) {
-      setFormData({
-        ...formData,
-        server_accesses: formData.server_accesses.filter((_, i) => i !== index)
-      });
-    }
-  };
+  // buscar planos do Supabase
+  useEffect(() => {
+    if (!isOpen) return;
 
-  const updateAccess = (index: number, field: string, value: any) => {
-    const newAccesses = [...formData.server_accesses];
-    newAccesses[index] = { ...newAccesses[index], [field]: value };
-    
-    // Auto-populate if server_id changes
-    if (field === 'server_id') {
-      const selectedServer = servers.find(s => s.id.toString() === value.toString());
-      if (selectedServer) {
-        newAccesses[index].login = selectedServer.login || '';
-        newAccesses[index].password = selectedServer.password || '';
+    const fetchPlans = async () => {
+      setLoadingPlans(true);
+
+      const { data, error } = await supabase
+        .from("plans")
+        .select("id, name, months, price")
+        .order("price", { ascending: true });
+
+      if (error) {
+        console.error("Erro ao buscar planos:", error);
+        setPlans([]);
+      } else {
+        setPlans(
+          ((data as any[]) ?? []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            months: Number(p.months ?? 1),
+            price: Number(p.price ?? 0),
+          }))
+        );
       }
-    }
-    
-    setFormData({ ...formData, server_accesses: newAccesses });
-  };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    // Validation: Check each access
-    for (const access of formData.server_accesses) {
-      if (access.login && access.password && access.server_id) {
-        // Count clients using this login/password on this server
-        const existingCount = allClients.filter(c => {
-          // Check old fields
-          const matchesOld = c.server_id === access.server_id && c.login === access.login && c.password === access.password;
-          // Check new array
-          const matchesNew = c.server_accesses?.some(a => a.server_id === access.server_id && a.login === access.login && a.password === access.password);
-          
-          return (matchesOld || matchesNew) && c.id !== editingClient?.id;
-        }).length;
-
-        if (existingCount >= 3) {
-          setError(`Atenção: O usuário "${access.login}" já possui 3 clientes vinculados no servidor selecionado. Limite atingido.`);
-          return;
-        }
-      }
-    }
-
-    // Map the first access to the old fields for backward compatibility if needed, 
-    // but the main data is now in server_accesses
-    const firstAccess = formData.server_accesses[0];
-    const finalData = {
-      ...formData,
-      server_id: firstAccess?.server_id || null,
-      login: firstAccess?.login || '',
-      password: firstAccess?.password || '',
+      setLoadingPlans(false);
     };
 
-    onSave(editingClient ? { ...finalData, id: editingClient.id } : finalData);
-    onClose();
-  };
+    fetchPlans();
+  }, [isOpen]);
+
+  const selectedPlan = useMemo(() => {
+    if (!form.plan_id) return null;
+    return plans.find((p) => p.id === form.plan_id) ?? null;
+  }, [plans, form.plan_id]);
+
+  const money = (v: number) =>
+    Number(v ?? 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+  if (!isOpen) return null;
 
   return (
-    <>
-      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-          {editingClient ? 'Editar Cliente' : 'Novo Cliente'}
-        </h2>
-        <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-          <X className="w-5 h-5 text-slate-500" />
-        </button>
-      </div>
-
-      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-        {error && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-3 bg-red-100 border border-red-200 text-red-600 rounded-lg text-sm font-bold"
-          >
-            {error}
-          </motion.div>
-        )}
-
-        <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-            <User className="w-4 h-4" /> Nome Completo
-          </label>
-          <input
-            required
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-            placeholder="Ex: João Silva"
-          />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b p-4">
+          <h2 className="text-lg font-semibold">
+            {form.id ? "Editar Cliente" : "Novo Cliente"}
+          </h2>
+          <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100">
+            <X size={18} />
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Mail className="w-4 h-4" /> Email
-            </label>
-            <input
-              required
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-              placeholder="joao@exemplo.com"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Phone className="w-4 h-4" /> Telefone
-            </label>
-            <input
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-              placeholder="(00) 00000-0000"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Tv className="w-4 h-4" /> Plano
-            </label>
-            <select
-              value={formData.plan}
-              onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
-              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-            >
-              {plans.length > 0 ? (
-                plans.map(p => <option key={p.id} value={p.name}>{p.name} - R$ {Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</option>)
-              ) : (
-                <>
-                  <option>Basic SD</option>
-                  <option>Standard HD</option>
-                  <option>Premium 4K</option>
-                </>
-              )}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Calendar className="w-4 h-4" /> Vencimento
-            </label>
-            <input
-              required
-              value={formData.expiry}
-              onChange={(e) => setFormData({ ...formData, expiry: e.target.value })}
-              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-              placeholder="DD/MM/AAAA"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Acessos aos Servidores</h3>
-            <button
-              type="button"
-              onClick={addAccess}
-              className="flex items-center gap-1 text-xs font-bold text-primary hover:underline"
-            >
-              <Plus className="w-3 h-3" /> Adicionar Acesso
-            </button>
-          </div>
-
-          {formData.server_accesses.map((access, index) => (
-            <div key={index} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4 relative">
-              {formData.server_accesses.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeAccess(index)}
-                  className="absolute top-4 right-4 p-1 text-slate-400 hover:text-red-500 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-              
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                  <Server className="w-4 h-4" /> Servidor {index + 1}
-                </label>
-                <select
-                  required
-                  value={access.server_id}
-                  onChange={(e) => updateAccess(index, 'server_id', e.target.value)}
-                  className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                >
-                  <option value="">Selecione um servidor</option>
-                  {servers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {access.server_id && (
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Logins em uso neste servidor:</label>
-                  <div className="flex flex-wrap gap-2">
-                    {Array.from(new Set(allClients.filter(c => {
-                      const matchesOld = c.server_id?.toString() === access.server_id.toString();
-                      const matchesNew = c.server_accesses?.some(a => a.server_id?.toString() === access.server_id.toString());
-                      return matchesOld || matchesNew;
-                    }).flatMap(c => {
-                      const logins = [];
-                      if (c.server_id?.toString() === access.server_id.toString()) logins.push(c.login);
-                      c.server_accesses?.forEach(a => {
-                        if (a.server_id?.toString() === access.server_id.toString()) logins.push(a.login);
-                      });
-                      return logins;
-                    }))).map(login => {
-                      const count = allClients.reduce((acc, c) => {
-                        let cCount = 0;
-                        if (c.server_id?.toString() === access.server_id.toString() && c.login === login) cCount++;
-                        c.server_accesses?.forEach(a => {
-                          if (a.server_id?.toString() === access.server_id.toString() && a.login === login) cCount++;
-                        });
-                        return acc + cCount;
-                      }, 0);
-                      const isFull = count >= 3;
-                      return (
-                        <button
-                          key={login}
-                          type="button"
-                          disabled={isFull}
-                          onClick={() => {
-                            // Find any client that has this login on this server to get the password
-                            const clientWithThisLogin = allClients.find(c => {
-                              if (c.server_id?.toString() === access.server_id.toString() && c.login === login) return true;
-                              return c.server_accesses?.some(a => a.server_id?.toString() === access.server_id.toString() && a.login === login);
-                            });
-                            if (clientWithThisLogin) {
-                              const targetAccess = clientWithThisLogin.server_id?.toString() === access.server_id.toString() && clientWithThisLogin.login === login
-                                ? { login: clientWithThisLogin.login, password: clientWithThisLogin.password }
-                                : clientWithThisLogin.server_accesses?.find(a => a.server_id?.toString() === access.server_id.toString() && a.login === login);
-                              
-                              if (targetAccess) {
-                                updateAccess(index, 'login', targetAccess.login);
-                                updateAccess(index, 'password', targetAccess.password);
-                              }
-                            }
-                          }}
-                          className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${isFull ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-primary/10 text-primary border-primary/20 hover:bg-primary hover:text-white'}`}
-                        >
-                          {login} ({count}/3)
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                    <User className="w-4 h-4" /> Login
-                  </label>
-                  <input
-                    required
-                    value={access.login}
-                    onChange={(e) => updateAccess(index, 'login', e.target.value)}
-                    className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                    placeholder="Login"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                    <Lock className="w-4 h-4" /> Senha
-                  </label>
-                  <input
-                    required
-                    type="password"
-                    value={access.password}
-                    onChange={(e) => updateAccess(index, 'password', e.target.value)}
-                    className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                    placeholder="Senha"
-                  />
-                </div>
-              </div>
+        <div className="max-h-[75vh] overflow-y-auto p-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="text-sm text-gray-600">Nome Completo</label>
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.name}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, name: e.target.value }))
+                }
+              />
             </div>
-          ))}
-        </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4" /> Status
-          </label>
-          <div className="flex gap-4">
-            {['Ativo', 'Vencendo', 'Inativo'].map((s) => (
-              <label key={s} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="status"
-                  checked={formData.status === s}
-                  onChange={() => setFormData({ ...formData, status: s })}
-                  className="text-primary focus:ring-primary"
-                />
-                <span className="text-sm text-slate-600 dark:text-slate-400">{s}</span>
-              </label>
-            ))}
+            <div>
+              <label className="text-sm text-gray-600">Email</label>
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.email}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, email: e.target.value }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Telefone</label>
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.phone ?? ""}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, phone: e.target.value }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Plano</label>
+              <select
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.plan_id ?? ""}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  const p = plans.find((x) => x.id === id) ?? null;
+
+                  // ✅ Vencimento automático baseado no plano (se estiver vazio OU se estiver criando novo cliente)
+                  const shouldAutoFillExpiry =
+                    !form.expiry || !form.id; // se estiver criando, auto sempre
+                  const newExpiry = p && shouldAutoFillExpiry
+                    ? formatDateBR(addMonthsSafe(new Date(), Number(p.months ?? 1)))
+                    : form.expiry;
+
+                  setForm((prev) => ({
+                    ...prev,
+                    plan_id: id,
+                    plan_name: p?.name ?? null,
+                    plan_months: p?.months ?? null,
+                    plan_price: p?.price ?? null,
+
+                    // compat antigo (se ainda usa "plan" string)
+                    plan: p?.name ?? prev.plan ?? "",
+
+                    expiry: newExpiry,
+                  }));
+                }}
+              >
+                <option value="">
+                  {loadingPlans ? "Carregando planos..." : "Selecione um plano"}
+                </option>
+
+                {plans.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} — {money(p.price)} / {p.months} mês(es)
+                  </option>
+                ))}
+              </select>
+
+              {selectedPlan && (
+                <div className="mt-2 text-sm text-gray-700">
+                  <b>Valor:</b> {money(selectedPlan.price)} &nbsp;|&nbsp;
+                  <b>Duração:</b> {selectedPlan.months} mês(es)
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Vencimento</label>
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                placeholder="DD/MM/AAAA"
+                value={form.expiry}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, expiry: e.target.value }))
+                }
+              />
+              <p className="mt-1 text-[11px] text-gray-500">
+                Dica: ao selecionar o plano, o vencimento pode ser preenchido automaticamente.
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm text-gray-600">Servidor</label>
+              <select
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.server_id ?? ""}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, server_id: e.target.value || null }))
+                }
+              >
+                <option value="">Selecione um servidor</option>
+                {(servers ?? []).map((s: any) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name ?? s.url ?? `Servidor ${s.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Login</label>
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.login ?? ""}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, login: e.target.value }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Senha</label>
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.password ?? ""}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, password: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm text-gray-600">Status</label>
+              <select
+                className="mt-1 w-full rounded-lg border p-2"
+                value={form.status}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, status: e.target.value }))
+                }
+              >
+                <option value="Ativo">Ativo</option>
+                <option value="Vencido">Vencido</option>
+                <option value="Pausado">Pausado</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <div className="pt-4 flex gap-3">
+        <div className="flex items-center justify-end gap-2 border-t p-4">
           <button
-            type="button"
             onClick={onClose}
-            className="flex-1 px-6 py-3 rounded-lg font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+            className="rounded-lg border px-4 py-2 hover:bg-gray-50"
           >
             Cancelar
           </button>
           <button
-            type="submit"
-            className="flex-1 px-6 py-3 rounded-lg font-bold bg-primary text-white shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+            onClick={() => onSave(form)}
+            className="rounded-lg bg-orange-600 px-4 py-2 font-semibold text-white hover:bg-orange-700"
           >
-            {editingClient ? 'Salvar Alterações' : 'Cadastrar Cliente'}
+            {form.id ? "Salvar Alterações" : "Cadastrar Cliente"}
           </button>
         </div>
-      </form>
-    </>
+      </div>
+    </div>
   );
 }
