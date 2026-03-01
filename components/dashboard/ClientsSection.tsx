@@ -1,36 +1,42 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { 
-  Users, 
-  Search, 
-  Plus, 
-  Filter, 
-  MoreVertical, 
-  Edit2, 
+import { useState } from "react";
+import {
+  Search,
+  Plus,
+  Filter,
+  Edit2,
   Trash2,
   Server,
   Shield,
-  Lock
-} from 'lucide-react';
-import Image from 'next/image';
-import { motion } from 'motion/react';
-import ClientModal from '@/components/ClientModal';
-import { supabase } from '@/lib/supabase';
+} from "lucide-react";
+import Image from "next/image";
+import ClientModal from "@/components/ClientModal";
+import { supabase } from "@/lib/supabase";
 
 interface Client {
   id: any;
   name: string;
   email: string;
   phone?: string;
+
+  // compat antigo
   plan: string;
+
+  // novo (puxado do Supabase)
+  plan_id?: string | null;
+  plan_name?: string | null;
+  plan_months?: number | null;
+  plan_price?: number | null;
+
   status: string;
   expiry: string;
   image: string;
+
   server_id: any;
   login: string;
   password: string;
-  server_accesses?: { server_id: any, login: string, password: string }[];
+  server_accesses?: { server_id: any; login: string; password: string }[];
 }
 
 interface ClientsSectionProps {
@@ -40,92 +46,126 @@ interface ClientsSectionProps {
   StatusBadge: any;
 }
 
-export default function ClientsSection({ customers, setCustomers, servers, StatusBadge }: ClientsSectionProps) {
+export default function ClientsSection({
+  customers,
+  setCustomers,
+  servers,
+  StatusBadge,
+}: ClientsSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.login.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.phone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.server_accesses?.some(a => a.login.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredCustomers = customers.filter(
+    (c) =>
+      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.login.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.phone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.server_accesses?.some((a) =>
+        a.login.toLowerCase().includes(searchQuery.toLowerCase())
+      )
   );
 
   const handleSaveClient = async (clientData: any) => {
     try {
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      const user = userData?.user;
+
+      if (userErr || !user) {
+        alert("Você precisa estar logado para salvar um cliente.");
+        return;
+      }
+
+      // compat: se vier só plan (string), mantém
+      const planName = clientData.plan_name ?? clientData.plan ?? "";
+
       if (clientData.id) {
         const { error } = await supabase
-          .from('customers')
+          .from("customers")
           .update({
             name: clientData.name,
             email: clientData.email,
             phone: clientData.phone,
-            plan: clientData.plan,
+
+            // compat antigo + novos campos
+            plan: planName,
+            plan_id: clientData.plan_id ?? null,
+            plan_name: clientData.plan_name ?? planName,
+            plan_months: clientData.plan_months ?? null,
+            plan_price: clientData.plan_price ?? null,
+
             status: clientData.status,
             expiry: clientData.expiry,
-            server_id: clientData.server_id,
+            server_id: clientData.server_id ?? null,
             login: clientData.login,
             password: clientData.password,
-            server_accesses: clientData.server_accesses
+            server_accesses: clientData.server_accesses,
           })
-          .eq('id', clientData.id);
+          .eq("id", clientData.id);
 
         if (error) throw error;
-        setCustomers(prev => prev.map(c => c.id === clientData.id ? { ...c, ...clientData } : c));
+
+        setCustomers((prev) =>
+          prev.map((c) =>
+            c.id === clientData.id
+              ? { ...c, ...clientData, plan: planName }
+              : c
+          )
+        );
       } else {
         const newClientData = {
+          owner_id: user.id, // multioperador / RLS
           name: clientData.name,
           email: clientData.email,
           phone: clientData.phone,
-          plan: clientData.plan,
+
+          plan: planName,
+          plan_id: clientData.plan_id ?? null,
+          plan_name: clientData.plan_name ?? planName,
+          plan_months: clientData.plan_months ?? null,
+          plan_price: clientData.plan_price ?? null,
+
           status: clientData.status,
           expiry: clientData.expiry,
           image: `https://picsum.photos/seed/${clientData.name}/40/40`,
-          server_id: clientData.server_id,
+          server_id: clientData.server_id ?? null,
           login: clientData.login,
           password: clientData.password,
-          server_accesses: clientData.server_accesses
+          server_accesses: clientData.server_accesses,
         };
 
         const { data, error } = await supabase
-          .from('customers')
+          .from("customers")
           .insert([newClientData])
           .select();
 
         if (error) throw error;
-        if (data) setCustomers(prev => [data[0], ...prev]);
+        if (data) setCustomers((prev) => [data[0], ...prev]);
       }
-    } catch (error) {
-      console.error('Error saving client to Supabase:', error);
-      if (clientData.id) {
-        setCustomers(prev => prev.map(c => c.id === clientData.id ? { ...c, ...clientData } : c));
-      } else {
-        const fallbackClient = {
-          ...clientData,
-          id: Math.max(...customers.map(c => typeof c.id === 'number' ? c.id : 0), 0) + 1,
-          image: `https://picsum.photos/seed/${clientData.name}/40/40`
-        };
-        setCustomers(prev => [fallbackClient, ...prev]);
-      }
+
+      setIsModalOpen(false);
+      setEditingClient(null);
+    } catch (error: any) {
+      console.error("Error saving client to Supabase:", error);
+      alert(error?.message ?? "Erro ao salvar cliente.");
     }
   };
 
   const handleDeleteClient = async (id: any) => {
-    if (confirm('Tem certeza que deseja excluir este cliente?')) {
-      try {
-        const { error } = await supabase
-          .from('customers')
-          .delete()
-          .eq('id', id);
+    if (!confirm("Tem certeza que deseja excluir este cliente?")) return;
 
-        if (error) throw error;
-        setCustomers(prev => prev.filter(c => c.id !== id));
-      } catch (error) {
-        console.error('Error deleting client from Supabase:', error);
-        setCustomers(prev => prev.filter(c => c.id !== id));
-      }
+    try {
+      const { error } = await supabase.from("customers").delete().eq("id", id);
+      if (error) throw error;
+
+      setCustomers((prev) => prev.filter((c) => c.id !== id));
+    } catch (error: any) {
+      console.error("Error deleting client from Supabase:", error);
+      alert(
+        error?.message ??
+          "Não foi possível excluir no banco. Verifique permissões (RLS) e login."
+      );
     }
   };
 
@@ -140,22 +180,26 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
   };
 
   const getServerName = (id: any) => {
-    const server = servers.find(s => s.id === id);
-    return server ? server.name : 'Nenhum';
+    const server = servers.find((s) => s.id === id);
+    return server ? server.name : "Nenhum";
   };
 
   return (
     <div className="space-y-8">
       <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Clientes</h1>
-          <p className="text-slate-500 text-sm sm:text-base">Gerencie sua base de assinantes e acessos.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+            Clientes
+          </h1>
+          <p className="text-slate-500 text-sm sm:text-base">
+            Gerencie sua base de assinantes e acessos.
+          </p>
         </div>
         <div className="flex gap-3 w-full sm:w-auto">
           <button className="flex-1 sm:flex-none bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 hover:bg-slate-50 transition-all">
             <Filter className="w-4 h-4" /> Filtros
           </button>
-          <button 
+          <button
             onClick={openAddModal}
             className="flex-1 sm:flex-none bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
           >
@@ -166,12 +210,14 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <h2 className="font-bold text-lg text-slate-900 dark:text-white">Lista de Clientes</h2>
+          <h2 className="font-bold text-lg text-slate-900 dark:text-white">
+            Lista de Clientes
+          </h2>
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Buscar..." 
+            <input
+              type="text"
+              placeholder="Buscar..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/20"
@@ -193,88 +239,139 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredCustomers.map((customer) => (
-                <tr key={customer.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                <tr
+                  key={customer.id}
+                  className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
+                >
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
-                        <Image 
-                          src={customer.image} 
-                          alt={customer.name} 
-                          fill 
-                          className="object-cover" 
+                        <Image
+                          src={customer.image}
+                          alt={customer.name}
+                          fill
+                          className="object-cover"
                           referrerPolicy="no-referrer"
                         />
                       </div>
                       <div>
-                        <div className="font-bold text-slate-900 dark:text-white text-sm">{customer.name}</div>
+                        <div className="font-bold text-slate-900 dark:text-white text-sm">
+                          {customer.name}
+                        </div>
                         <div className="text-slate-500 text-xs flex flex-col">
                           <span>{customer.email}</span>
-                          {customer.phone && <span className="text-primary font-medium">{customer.phone}</span>}
+                          {customer.phone && (
+                            <span className="text-primary font-medium">
+                              {customer.phone}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
                   </td>
+
                   <td className="px-6 py-4">
                     <div className="space-y-2">
-                      {customer.server_accesses && customer.server_accesses.length > 0 ? (
+                      {customer.server_accesses &&
+                      customer.server_accesses.length > 0 ? (
                         customer.server_accesses.map((access, idx) => (
-                          <div key={idx} className="space-y-1 pb-2 border-b border-slate-100 dark:border-slate-800 last:border-0 last:pb-0">
+                          <div
+                            key={idx}
+                            className="space-y-1 pb-2 border-b border-slate-100 dark:border-slate-800 last:border-0 last:pb-0"
+                          >
                             <div className="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-400">
-                              <Server className="w-2 h-2" /> {getServerName(access.server_id)}
+                              <Server className="w-2 h-2" />{" "}
+                              {getServerName(access.server_id)}
                             </div>
                             <div className="flex items-center gap-1 text-[10px] font-mono text-primary">
-                              <Shield className="w-2 h-2" /> {access.login || 'N/A'}
+                              <Shield className="w-2 h-2" />{" "}
+                              {access.login || "N/A"}
                             </div>
                           </div>
                         ))
                       ) : (
                         <div className="space-y-1">
                           <div className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400">
-                            <Server className="w-3 h-3" /> {getServerName(customer.server_id)}
+                            <Server className="w-3 h-3" />{" "}
+                            {getServerName(customer.server_id)}
                           </div>
                           <div className="flex items-center gap-1 text-xs font-mono text-primary">
-                            <Shield className="w-3 h-3" /> {customer.login || 'N/A'}
+                            <Shield className="w-3 h-3" />{" "}
+                            {customer.login || "N/A"}
                           </div>
                         </div>
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 font-medium">{customer.plan}</td>
+
+                  <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 font-medium">
+                    {customer.plan_name ?? customer.plan}
+                    {typeof customer.plan_price === "number" && (
+                      <div className="text-[11px] text-slate-500">
+                        {Number(customer.plan_price).toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })}
+                        {customer.plan_months ? ` / ${customer.plan_months} mês(es)` : ""}
+                      </div>
+                    )}
+                  </td>
+
                   <td className="px-6 py-4">
                     <StatusBadge status={customer.status} />
                   </td>
+
                   <td className="px-6 py-4 text-sm text-slate-500">
                     {(() => {
-                      const [day, month, year] = customer.expiry.split('/');
-                      const expiryDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                      const [day, month, year] = customer.expiry.split("/");
+                      const expiryDate = new Date(
+                        parseInt(year),
+                        parseInt(month) - 1,
+                        parseInt(day)
+                      );
                       expiryDate.setHours(0, 0, 0, 0);
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
-                      
+
                       const diffTime = expiryDate.getTime() - today.getTime();
-                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      const diffDays = Math.ceil(
+                        diffTime / (1000 * 60 * 60 * 24)
+                      );
                       const isExpiringSoon = diffDays > 0 && diffDays <= 3;
                       const isExpired = expiryDate < today;
 
                       return (
                         <div className="flex flex-col">
-                          <span className={`${isExpired ? 'text-red-500 font-bold' : isExpiringSoon ? 'text-amber-500 font-bold' : ''}`}>
+                          <span
+                            className={`${
+                              isExpired
+                                ? "text-red-500 font-bold"
+                                : isExpiringSoon
+                                ? "text-amber-500 font-bold"
+                                : ""
+                            }`}
+                          >
                             {customer.expiry}
                           </span>
-                          {isExpiringSoon && <span className="text-[10px] text-amber-500 font-bold uppercase">Vence em {diffDays}d</span>}
+                          {isExpiringSoon && (
+                            <span className="text-[10px] text-amber-500 font-bold uppercase">
+                              Vence em {diffDays}d
+                            </span>
+                          )}
                         </div>
                       );
                     })()}
                   </td>
+
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button 
+                      <button
                         onClick={() => openEditModal(customer)}
                         className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-slate-400 hover:text-blue-500 rounded-lg transition-colors"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button 
+                      <button
                         onClick={() => handleDeleteClient(customer.id)}
                         className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
                       >
@@ -284,9 +381,13 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
                   </td>
                 </tr>
               ))}
+
               {filteredCustomers.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                  <td
+                    colSpan={6}
+                    className="px-6 py-12 text-center text-slate-500"
+                  >
                     Nenhum cliente encontrado.
                   </td>
                 </tr>
@@ -296,8 +397,8 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
         </div>
       </div>
 
-      <ClientModal 
-        key={editingClient?.id || 'new'}
+      <ClientModal
+        key={editingClient?.id || "new"}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveClient}
