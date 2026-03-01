@@ -35,29 +35,13 @@ export default function PlansSection() {
   }, []);
 
   const fetchPlans = async () => {
-    const { data, error } = await supabase
-      .from('plans')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching plans:', error);
-      setPlans([]);
-      return;
-    }
-
-    setPlans(data ?? []);
+    const { data, error } = await supabase.from('plans').select('*').order('created_at', { ascending: false });
+    if (data) setPlans(data);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr || !user) {
-        alert('Você precisa estar logado para salvar um plano.');
-        return;
-      }
-
       const cleanValue = formData.value.toString().replace(',', '.');
       const numericValue = parseFloat(cleanValue);
       const numericMonths = parseInt(formData.months.toString());
@@ -87,7 +71,7 @@ export default function PlansSection() {
       } else {
         const { error } = await supabase
           .from('plans')
-          .insert([{ ...payload, owner_id: user.id }]);
+          .insert([payload]);
         if (error) throw error;
       }
       setIsModalOpen(false);
@@ -99,17 +83,10 @@ export default function PlansSection() {
   };
 
   const handleDelete = async (id: any) => {
-    if (!confirm('Deseja excluir este plano?')) return;
-
-    const { error } = await supabase.from('plans').delete().eq('id', id);
-
-    if (error) {
-      console.error('Error deleting plan:', error);
-      alert(`Erro ao excluir plano: ${error.message || 'Verifique permissões e tente novamente.'}`);
-      return;
+    if (confirm('Deseja excluir este plano?')) {
+      await supabase.from('plans').delete().eq('id', id);
+      fetchPlans();
     }
-
-    fetchPlans();
   };
 
   const openModal = (plan?: Plan) => {
