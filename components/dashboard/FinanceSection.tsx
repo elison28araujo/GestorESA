@@ -1,48 +1,49 @@
 'use client';
 
-import { 
-  CreditCard, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  DollarSign, 
-  Calendar,
-  Download,
-  Filter,
+import {
+  CreditCard,
+  ArrowUpRight,
+  ArrowDownLeft,
+  DollarSign,
   Edit2,
   Trash2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
-import TransactionModal from '@/components/TransactionModal';
+import TransactionModal from './TransactionModal'; // ✅ IMPORT RELATIVO (Vercel OK)
 import { supabase } from '@/lib/supabase';
 
-// Converte valor vindo do modal/DB para número (aceita number ou "R$ 1.234,56")
 function parseAmountBR(value: any): number {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'number') return value;
+
   if (typeof value === 'string') {
     const cleaned = value
       .trim()
       .replace(/[^\d.,-]/g, '')
       .replace(/\./g, '')
       .replace(',', '.');
+
     const n = Number(cleaned);
     return Number.isFinite(n) ? n : 0;
   }
+
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
 function formatMoneyBR(value: any): string {
-  const n = parseAmountBR(value);
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return parseAmountBR(value).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  });
 }
 
 interface Transaction {
   id: any;
   customer: string;
-  type: string;
-  amount: any; // number (DB) ou string (compat)
+  type: string; // "Receita" | "Despesa"
+  amount: any;  // ✅ pode vir number do Supabase
   date: string;
   method: string;
   status: string;
@@ -55,22 +56,7 @@ interface FinanceSectionProps {
 
 export default function FinanceSection({ transactions, setTransactions }: FinanceSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<any>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState<string>('Todos');
-
-  const filteredTransactions = useMemo(() => {
-    return (transactions ?? []).filter((t) => {
-      const matchesSearch =
-        (t.customer ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (t.method ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (t.status ?? '').toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesType = selectedType === 'Todos' ? true : t.type === selectedType;
-
-      return matchesSearch && matchesType;
-    });
-  }, [transactions, searchQuery, selectedType]);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   const totals = useMemo(() => {
     const income = (transactions ?? [])
@@ -81,11 +67,7 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
       .filter((t) => t.type === 'Despesa')
       .reduce((acc, t) => acc + parseAmountBR(t.amount), 0);
 
-    return {
-      income,
-      expense,
-      balance: income - expense,
-    };
+    return { income, expense, balance: income - expense };
   }, [transactions]);
 
   const handleSaveTransaction = async (data: any) => {
@@ -108,30 +90,25 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
         if (error) throw error;
 
         setTransactions((prev) =>
-          prev.map((t) => (t.id === data.id ? { ...t, ...data, amount: numericAmount } : t))
+          (prev ?? []).map((t) => (t.id === data.id ? { ...t, ...data, amount: numericAmount } : t))
         );
       } else {
-        const { data: newTransaction, error } = await supabase
+        const { data: inserted, error } = await supabase
           .from('transactions')
-          .insert([
-            {
-              customer: data.customer,
-              type: data.type,
-              amount: numericAmount,
-              date: data.date,
-              method: data.method,
-              status: data.status,
-            },
-          ])
+          .insert([{
+            customer: data.customer,
+            type: data.type,
+            amount: numericAmount,
+            date: data.date,
+            method: data.method,
+            status: data.status,
+          }])
           .select();
 
         if (error) throw error;
 
-        if (newTransaction?.[0]) {
-          setTransactions((prev) => [
-            { ...newTransaction[0], amount: newTransaction[0].amount },
-            ...(prev ?? []),
-          ]);
+        if (inserted?.[0]) {
+          setTransactions((prev) => [inserted[0], ...(prev ?? [])]);
         }
       }
 
@@ -149,6 +126,7 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
     try {
       const { error } = await supabase.from('transactions').delete().eq('id', id);
       if (error) throw error;
+
       setTransactions((prev) => (prev ?? []).filter((t) => t.id !== id));
     } catch (error: any) {
       console.error('Error deleting transaction:', error);
@@ -161,7 +139,7 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
     setIsModalOpen(true);
   };
 
-  const openEditModal = (t: any) => {
+  const openEditModal = (t: Transaction) => {
     setEditingTransaction(t);
     setIsModalOpen(true);
   };
@@ -174,14 +152,12 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
           <p className="text-slate-500 text-sm sm:text-base">Controle receitas, despesas e fluxo de caixa.</p>
         </div>
 
-        <div className="flex gap-3 w-full sm:w-auto">
-          <button
-            onClick={openAddModal}
-            className="flex-1 sm:flex-none bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
-          >
-            <CreditCard className="w-4 h-4" /> Nova Transação
-          </button>
-        </div>
+        <button
+          onClick={openAddModal}
+          className="bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+        >
+          <CreditCard className="w-4 h-4" /> Nova Transação
+        </button>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -223,34 +199,6 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <h2 className="font-bold text-lg text-slate-900 dark:text-white">Transações</h2>
-
-          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-            <div className="relative w-full sm:w-64">
-              <input
-                type="text"
-                placeholder="Buscar..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-
-            <div className="w-full sm:w-44">
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm"
-              >
-                <option value="Todos">Todos</option>
-                <option value="Receita">Receitas</option>
-                <option value="Despesa">Despesas</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -266,9 +214,9 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
             </thead>
 
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredTransactions.map((t) => (
+              {(transactions ?? []).map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white">{t.customer}</td>
+                  <td className="px-6 py-4 text-sm font-semibold">{t.customer}</td>
                   <td className="px-6 py-4 text-sm">{t.type}</td>
                   <td className="px-6 py-4 text-sm font-bold">
                     {t.type === 'Receita' ? '+' : '-'} {formatMoneyBR(t.amount)}
@@ -295,7 +243,7 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
                 </tr>
               ))}
 
-              {filteredTransactions.length === 0 && (
+              {(transactions ?? []).length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                     Nenhuma transação encontrada.
