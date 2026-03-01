@@ -24,34 +24,15 @@ import SettingsSection from '@/components/dashboard/SettingsSection';
 import PlansSection from '@/components/dashboard/PlansSection';
 import { supabase } from '@/lib/supabase';
 
-const initialCustomers = [
-  { id: 1, name: 'João Silva', email: 'joao@exemplo.com', plan: 'Premium 4K', status: 'Ativo', expiry: '20/03/2024', image: 'https://picsum.photos/seed/joao/40/40', server_id: null, login: '', password: '' },
-  { id: 2, name: 'Maria Oliveira', email: 'maria@exemplo.com', plan: 'Standard HD', status: 'Vencendo', expiry: '02/03/2024', image: 'https://picsum.photos/seed/maria/40/40', server_id: null, login: '', password: '' },
-  { id: 3, name: 'Pedro Santos', email: 'pedro@exemplo.com', plan: 'Basic SD', status: 'Inativo', expiry: '15/02/2024', image: 'https://picsum.photos/seed/pedro/40/40', server_id: null, login: '', password: '' },
-  { id: 4, name: 'Ana Costa', email: 'ana@exemplo.com', plan: 'Premium 4K', status: 'Ativo', expiry: '12/04/2024', image: 'https://picsum.photos/seed/ana/40/40', server_id: null, login: '', password: '' },
-  { id: 5, name: 'Lucas Lima', email: 'lucas@exemplo.com', plan: 'Standard HD', status: 'Ativo', expiry: '28/03/2024', image: 'https://picsum.photos/seed/lucas/40/40', server_id: null, login: '', password: '' },
-];
-
-const initialServers = [
-  { id: 1, name: 'Servidor Principal', login: 'admin', password: 'password123', max_clients_per_user: 3, status: 'Online' },
-];
-
-const initialTransactions = [
-  { id: 1, customer: 'João Silva', type: 'Receita', amount: 'R$ 49,90', date: '28/02/2024', method: 'Pix', status: 'Concluído' },
-  { id: 2, customer: 'Servidor AWS', type: 'Despesa', amount: 'R$ 850,00', date: '27/02/2024', method: 'Cartão', status: 'Concluído' },
-  { id: 3, customer: 'Maria Oliveira', type: 'Receita', amount: 'R$ 35,00', date: '27/02/2024', method: 'Boleto', status: 'Pendente' },
-  { id: 4, customer: 'Lucas Lima', type: 'Receita', amount: 'R$ 49,90', date: '26/02/2024', method: 'Pix', status: 'Concluído' },
-  { id: 5, customer: 'Cloudflare Inc', type: 'Despesa', amount: 'R$ 120,00', date: '25/02/2024', method: 'Cartão', status: 'Concluído' },
-];
 
 export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   const [activeSection, setActiveSection] = useState('dashboard');
-  const [customers, setCustomers] = useState<any[]>(initialCustomers);
-  const [servers, setServers] = useState<any[]>(initialServers);
-  const [transactions, setTransactions] = useState<any[]>(initialTransactions);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [servers, setServers] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -70,14 +51,26 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const { data: customersData } = await supabase.from('customers').select('*');
-        if (customersData && customersData.length > 0) setCustomers(customersData);
+        const { data: customersData, error: customersErr } = await supabase
+          .from('customers')
+          .select('*');
 
-        const { data: serversData } = await supabase.from('servers').select('*');
-        if (serversData && serversData.length > 0) setServers(serversData);
+        if (customersErr) throw customersErr;
+        setCustomers(customersData ?? []);
 
-        const { data: transactionsData } = await supabase.from('transactions').select('*');
-        if (transactionsData && transactionsData.length > 0) setTransactions(transactionsData);
+        const { data: serversData, error: serversErr } = await supabase
+          .from('servers')
+          .select('*');
+
+        if (serversErr) throw serversErr;
+        setServers(serversData ?? []);
+
+        const { data: transactionsData, error: transactionsErr } = await supabase
+          .from('transactions')
+          .select('*');
+
+        if (transactionsErr) throw transactionsErr;
+        setTransactions(transactionsData ?? []);
       } catch (error) {
         console.error('Error fetching data from Supabase:', error);
       }
