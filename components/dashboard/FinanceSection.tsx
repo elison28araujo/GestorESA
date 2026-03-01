@@ -12,16 +12,37 @@ import {
   Trash2
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import TransactionModal from './TransactionModal';
-import { useState } from 'react';
-
+import { useMemo, useState } from 'react';
+import TransactionModal from '@/components/TransactionModal';
 import { supabase } from '@/lib/supabase';
+
+// Converte valor vindo do modal/DB para número (aceita number ou "R$ 1.234,56")
+function parseAmountBR(value: any): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const cleaned = value
+      .trim()
+      .replace(/[^\d.,-]/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.');
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatMoneyBR(value: any): string {
+  const n = parseAmountBR(value);
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
 
 interface Transaction {
   id: any;
   customer: string;
   type: string;
-  amount: string;
+  amount: any; // number (DB) ou string (compat)
   date: string;
   method: string;
   status: string;
@@ -34,14 +55,42 @@ interface FinanceSectionProps {
 
 export default function FinanceSection({ transactions, setTransactions }: FinanceSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedType, setSelectedType] = useState<string>('Todos');
+
+  const filteredTransactions = useMemo(() => {
+    return (transactions ?? []).filter((t) => {
+      const matchesSearch =
+        (t.customer ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (t.method ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (t.status ?? '').toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesType = selectedType === 'Todos' ? true : t.type === selectedType;
+
+      return matchesSearch && matchesType;
+    });
+  }, [transactions, searchQuery, selectedType]);
+
+  const totals = useMemo(() => {
+    const income = (transactions ?? [])
+      .filter((t) => t.type === 'Receita')
+      .reduce((acc, t) => acc + parseAmountBR(t.amount), 0);
+
+    const expense = (transactions ?? [])
+      .filter((t) => t.type === 'Despesa')
+      .reduce((acc, t) => acc + parseAmountBR(t.amount), 0);
+
+    return {
+      income,
+      expense,
+      balance: income - expense,
+    };
+  }, [transactions]);
 
   const handleSaveTransaction = async (data: any) => {
     try {
-      // Convert amount string "R$ 49,90" to numeric for DB if needed, 
-      // but here we'll just store the string or handle conversion.
-      // The migration uses NUMERIC(10,2), so we should convert.
-      const numericAmount = parseFloat(data.amount.replace('R$ ', '').replace('.', '').replace(',', '.'));
+      const numericAmount = parseAmountBR(data.amount);
 
       if (data.id) {
         const { error } = await supabase
@@ -52,64 +101,58 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
             amount: numericAmount,
             date: data.date,
             method: data.method,
-            status: data.status
+            status: data.status,
           })
           .eq('id', data.id);
 
         if (error) throw error;
-        setTransactions(prev => prev.map(t => t.id === data.id ? data : t));
+
+        setTransactions((prev) =>
+          prev.map((t) => (t.id === data.id ? { ...t, ...data, amount: numericAmount } : t))
+        );
       } else {
         const { data: newTransaction, error } = await supabase
           .from('transactions')
-          .insert([{
-            customer: data.customer,
-            type: data.type,
-            amount: numericAmount,
-            date: data.date,
-            method: data.method,
-            status: data.status
-          }])
+          .insert([
+            {
+              customer: data.customer,
+              type: data.type,
+              amount: numericAmount,
+              date: data.date,
+              method: data.method,
+              status: data.status,
+            },
+          ])
           .select();
 
         if (error) throw error;
-        if (newTransaction) {
-          // Format back for UI
-          const formatted = {
-            ...newTransaction[0],
-            amount: `R$ ${newTransaction[0].amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-          };
-          setTransactions(prev => [formatted, ...prev]);
+
+        if (newTransaction?.[0]) {
+          setTransactions((prev) => [
+            { ...newTransaction[0], amount: newTransaction[0].amount },
+            ...(prev ?? []),
+          ]);
         }
       }
-    } catch (error) {
-      console.error('Error saving transaction to Supabase:', error);
-      // Fallback
-      if (data.id) {
-        setTransactions(prev => prev.map(t => t.id === data.id ? data : t));
-      } else {
-        const fallbackTransaction = {
-          ...data,
-          id: Math.max(...transactions.map(t => typeof t.id === 'number' ? t.id : 0), 0) + 1
-        };
-        setTransactions(prev => [fallbackTransaction, ...prev]);
-      }
+
+      setIsModalOpen(false);
+      setEditingTransaction(null);
+    } catch (error: any) {
+      console.error('Error saving transaction:', error);
+      alert(error?.message ?? 'Erro ao salvar transação.');
     }
   };
 
   const handleDeleteTransaction = async (id: any) => {
-    if (confirm('Tem certeza que deseja excluir esta transação?')) {
-      try {
-        const { error } = await supabase
-          .from('transactions')
-          .delete()
-          .eq('id', id);
+    if (!confirm('Tem certeza que deseja excluir esta transação?')) return;
 
-        if (error) throw error;
-        setTransactions(prev => prev.filter(t => t.id !== id));
-      } catch (error) {
-        console.error('Error deleting transaction from Supabase:', error);
-        setTransactions(prev => prev.filter(t => t.id !== id));
-      }
+    try {
+      const { error } = await supabase.from('transactions').delete().eq('id', id);
+      if (error) throw error;
+      setTransactions((prev) => (prev ?? []).filter((t) => t.id !== id));
+    } catch (error: any) {
+      console.error('Error deleting transaction:', error);
+      alert(error?.message ?? 'Erro ao excluir transação.');
     }
   };
 
@@ -118,101 +161,93 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
     setIsModalOpen(true);
   };
 
-  const openEditModal = (transaction: Transaction) => {
-    setEditingTransaction(transaction);
+  const openEditModal = (t: any) => {
+    setEditingTransaction(t);
     setIsModalOpen(true);
   };
 
-  const totalRevenue = transactions
-    .filter(t => t.type === 'Receita')
-    .reduce((acc, t) => acc + parseFloat(t.amount.replace('R$ ', '').replace(',', '.')), 0);
-
-  const totalExpense = transactions
-    .filter(t => t.type === 'Despesa')
-    .reduce((acc, t) => acc + parseFloat(t.amount.replace('R$ ', '').replace(',', '.')), 0);
-
-  const balance = totalRevenue - totalExpense;
   return (
     <div className="space-y-8">
       <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Financeiro</h1>
-          <p className="text-slate-500 text-sm sm:text-base">Acompanhe seu fluxo de caixa, receitas e despesas.</p>
+          <p className="text-slate-500 text-sm sm:text-base">Controle receitas, despesas e fluxo de caixa.</p>
         </div>
+
         <div className="flex gap-3 w-full sm:w-auto">
-          <button className="flex-1 sm:flex-none bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 hover:bg-slate-50 transition-all">
-            <Download className="w-4 h-4" /> Exportar
-          </button>
-          <button 
+          <button
             onClick={openAddModal}
             className="flex-1 sm:flex-none bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
           >
-            <DollarSign className="w-4 h-4" /> Nova Transação
+            <CreditCard className="w-4 h-4" /> Nova Transação
           </button>
         </div>
       </header>
 
-      {/* Financial Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="bg-primary p-6 rounded-2xl text-white shadow-xl shadow-primary/20 relative overflow-hidden"
-        >
-          <div className="relative z-10">
-            <p className="text-white/70 text-sm font-medium">Saldo Total</p>
-            <h2 className="text-3xl font-bold mt-1">R$ {balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h2>
-            <div className="mt-6 flex items-center gap-2 text-sm bg-white/20 w-fit px-2 py-1 rounded-lg">
-              <ArrowUpRight className="w-4 h-4" /> +15% este mês
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-slate-500">Receitas</div>
+              <div className="text-2xl font-bold text-slate-900 dark:text-white">{formatMoneyBR(totals.income)}</div>
+            </div>
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600">
+              <ArrowUpRight className="w-5 h-5" />
             </div>
           </div>
-          <DollarSign className="absolute -right-4 -bottom-4 w-32 h-32 text-white/10" />
-        </motion.div>
+        </div>
 
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="bg-emerald-100 dark:bg-emerald-500/10 p-3 rounded-xl">
-              <ArrowUpRight className="w-6 h-6 text-emerald-600" />
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-slate-500">Despesas</div>
+              <div className="text-2xl font-bold text-slate-900 dark:text-white">{formatMoneyBR(totals.expense)}</div>
             </div>
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Receitas</span>
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-900/20 text-rose-600">
+              <ArrowDownLeft className="w-5 h-5" />
+            </div>
           </div>
-          <p className="text-slate-500 text-sm font-medium">Total Recebido</p>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">R$ {totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h2>
-        </motion.div>
+        </div>
 
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="bg-red-100 dark:bg-red-500/10 p-3 rounded-xl">
-              <ArrowDownLeft className="w-6 h-6 text-red-600" />
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-slate-500">Saldo</div>
+              <div className="text-2xl font-bold text-slate-900 dark:text-white">{formatMoneyBR(totals.balance)}</div>
             </div>
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Despesas</span>
+            <div className="p-3 rounded-xl bg-sky-50 dark:bg-sky-900/20 text-sky-600">
+              <DollarSign className="w-5 h-5" />
+            </div>
           </div>
-          <p className="text-slate-500 text-sm font-medium">Total Gasto</p>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">R$ {totalExpense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h2>
-        </motion.div>
+        </div>
       </div>
 
-      {/* Transactions List */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <h2 className="font-bold text-lg text-slate-900 dark:text-white">Últimas Transações</h2>
-          <div className="flex gap-2">
-            <button className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500">
-              <Calendar className="w-4 h-4" />
-            </button>
-            <button className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500">
-              <Filter className="w-4 h-4" />
-            </button>
+        <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <h2 className="font-bold text-lg text-slate-900 dark:text-white">Transações</h2>
+
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <div className="relative w-full sm:w-64">
+              <input
+                type="text"
+                placeholder="Buscar..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+
+            <div className="w-full sm:w-44">
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm"
+              >
+                <option value="Todos">Todos</option>
+                <option value="Receita">Receitas</option>
+                <option value="Despesa">Despesas</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -220,43 +255,36 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 text-xs uppercase tracking-wider font-bold">
-                <th className="px-6 py-4">Descrição/Cliente</th>
+                <th className="px-6 py-4">Cliente</th>
+                <th className="px-6 py-4">Tipo</th>
+                <th className="px-6 py-4">Valor</th>
                 <th className="px-6 py-4">Data</th>
                 <th className="px-6 py-4">Método</th>
-                <th className="px-6 py-4">Valor</th>
                 <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right">Ações</th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {transactions.map((t) => (
+              {filteredTransactions.map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${t.type === 'Receita' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
-                        {t.type === 'Receita' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
-                      </div>
-                      <span className="font-semibold text-slate-900 dark:text-white text-sm">{t.customer}</span>
-                    </div>
+                  <td className="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white">{t.customer}</td>
+                  <td className="px-6 py-4 text-sm">{t.type}</td>
+                  <td className="px-6 py-4 text-sm font-bold">
+                    {t.type === 'Receita' ? '+' : '-'} {formatMoneyBR(t.amount)}
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-500">{t.date}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 font-medium">{t.method}</td>
-                  <td className={`px-6 py-4 text-sm font-bold ${t.type === 'Receita' ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {t.type === 'Receita' ? '+' : '-'} {t.amount}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${t.status === 'Concluído' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                      {t.status}
-                    </span>
-                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-500">{t.method}</td>
+                  <td className="px-6 py-4 text-sm text-slate-500">{t.status}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button 
+                      <button
                         onClick={() => openEditModal(t)}
                         className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-slate-400 hover:text-blue-500 rounded-lg transition-colors"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button 
+                      <button
                         onClick={() => handleDeleteTransaction(t.id)}
                         className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
                       >
@@ -266,13 +294,20 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
                   </td>
                 </tr>
               ))}
+
+              {filteredTransactions.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                    Nenhuma transação encontrada.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      <TransactionModal 
-        key={editingTransaction?.id || 'new'}
+      <TransactionModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveTransaction}
