@@ -89,14 +89,14 @@ export default function DashboardHome({ customers, setCustomers, StatusBadge }: 
   };
   return (
     <div className="space-y-8">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bem-vindo de volta, Administrador</h1>
-          <p className="text-slate-500">Aqui está o que está acontecendo com sua rede hoje.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Bem-vindo de volta, Administrador</h1>
+          <p className="text-slate-500 text-sm sm:text-base">Aqui está o que está acontecendo com sua rede hoje.</p>
         </div>
         {expiringSoon.length > 0 && (
-          <div className="flex items-center gap-2 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-lg border border-amber-200 dark:border-amber-800 animate-pulse">
-            <Bell className="w-4 h-4" />
+          <div className="flex items-center gap-2 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-lg border border-amber-200 dark:border-amber-800 animate-pulse w-full sm:w-auto">
+            <Bell className="w-4 h-4 shrink-0" />
             <span className="text-sm font-bold">{expiringSoon.length} {expiringSoon.length === 1 ? 'cliente vence' : 'clientes vencem'} em 3 dias!</span>
           </div>
         )}

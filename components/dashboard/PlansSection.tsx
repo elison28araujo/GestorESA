@@ -106,14 +106,14 @@ export default function PlansSection() {
 
   return (
     <div className="space-y-8">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Planos</h1>
-          <p className="text-slate-500">Configure os pacotes e valores oferecidos.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Planos</h1>
+          <p className="text-slate-500 text-sm sm:text-base">Configure os pacotes e valores oferecidos.</p>
         </div>
         <button 
           onClick={() => openModal()}
-          className="bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+          className="w-full sm:w-auto bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
         >
           <Plus className="w-4 h-4" /> Novo Plano
         </button>

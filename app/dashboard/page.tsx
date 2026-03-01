@@ -45,11 +45,27 @@ const initialTransactions = [
 ];
 
 export default function DashboardPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
   const [activeSection, setActiveSection] = useState('dashboard');
   const [customers, setCustomers] = useState<any[]>(initialCustomers);
   const [servers, setServers] = useState<any[]>(initialServers);
   const [transactions, setTransactions] = useState<any[]>(initialTransactions);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024);
+      if (window.innerWidth >= 1024) {
+        setSidebarOpen(true);
+      } else {
+        setSidebarOpen(false);
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -69,6 +85,11 @@ export default function DashboardPage() {
 
     fetchData();
   }, []);
+
+  const handleSectionChange = (section: string) => {
+    setActiveSection(section);
+    if (isMobile) setSidebarOpen(false);
+  };
 
   const renderSection = () => {
     switch (activeSection) {
@@ -91,13 +112,32 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
+      {/* Mobile Sidebar Overlay */}
+      {isMobile && sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col`}>
-        <div className="p-6 flex items-center gap-3">
-          <div className="bg-primary p-2 rounded-lg text-white shrink-0">
-            <Tv className="w-6 h-6" />
+      <aside className={`
+        ${isMobile ? 'fixed inset-y-0 left-0 z-50' : 'relative'}
+        ${sidebarOpen ? 'w-64' : 'w-0 lg:w-20'} 
+        bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex flex-col overflow-hidden
+      `}>
+        <div className="p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-primary p-2 rounded-lg text-white shrink-0">
+              <Tv className="w-6 h-6" />
+            </div>
+            {(sidebarOpen || isMobile) && <span className="font-bold text-xl text-slate-900 dark:text-white truncate">IPTV Control</span>}
           </div>
-          {sidebarOpen && <span className="font-bold text-xl text-slate-900 dark:text-white truncate">IPTV Control</span>}
+          {isMobile && (
+            <button onClick={() => setSidebarOpen(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500">
+              <Plus className="w-5 h-5 rotate-45" />
+            </button>
+          )}
         </div>
 
         <nav className="flex-1 px-4 space-y-2 mt-4">
@@ -105,43 +145,43 @@ export default function DashboardPage() {
             icon={Activity} 
             label="Dashboard" 
             active={activeSection === 'dashboard'} 
-            sidebarOpen={sidebarOpen} 
-            onClick={() => setActiveSection('dashboard')}
+            sidebarOpen={sidebarOpen || isMobile} 
+            onClick={() => handleSectionChange('dashboard')}
           />
           <SidebarItem 
             icon={Users} 
             label="Clientes" 
             active={activeSection === 'clients'}
-            sidebarOpen={sidebarOpen} 
-            onClick={() => setActiveSection('clients')}
+            sidebarOpen={sidebarOpen || isMobile} 
+            onClick={() => handleSectionChange('clients')}
           />
           <SidebarItem 
             icon={Tv} 
             label="Servidores" 
             active={activeSection === 'servers'}
-            sidebarOpen={sidebarOpen} 
-            onClick={() => setActiveSection('servers')}
+            sidebarOpen={sidebarOpen || isMobile} 
+            onClick={() => handleSectionChange('servers')}
           />
           <SidebarItem 
             icon={CreditCard} 
             label="Financeiro" 
             active={activeSection === 'finance'}
-            sidebarOpen={sidebarOpen} 
-            onClick={() => setActiveSection('finance')}
+            sidebarOpen={sidebarOpen || isMobile} 
+            onClick={() => handleSectionChange('finance')}
           />
           <SidebarItem 
             icon={Calendar} 
             label="Planos" 
             active={activeSection === 'plans'}
-            sidebarOpen={sidebarOpen} 
-            onClick={() => setActiveSection('plans')}
+            sidebarOpen={sidebarOpen || isMobile} 
+            onClick={() => handleSectionChange('plans')}
           />
           <SidebarItem 
             icon={Settings} 
             label="Configurações" 
             active={activeSection === 'settings'}
-            sidebarOpen={sidebarOpen} 
-            onClick={() => setActiveSection('settings')}
+            sidebarOpen={sidebarOpen || isMobile} 
+            onClick={() => handleSectionChange('settings')}
           />
         </nav>
 
@@ -151,34 +191,34 @@ export default function DashboardPage() {
             className="w-full flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
           >
             <LogOut className="w-5 h-5" />
-            {sidebarOpen && <span className="font-medium">Sair</span>}
+            {(sidebarOpen || isMobile) && <span className="font-medium">Sair</span>}
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden w-full">
         {/* Header */}
-        <header className="h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-8">
+        <header className="h-16 lg:h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-8 shrink-0">
           <div className="flex items-center gap-4 flex-1 max-w-xl">
-            <div className="relative w-full">
+            <button 
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors"
+            >
+              <Activity className="w-5 h-5" />
+            </button>
+            <div className="relative w-full hidden sm:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="Buscar em todo o sistema..." 
+                placeholder="Buscar..." 
                 className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg focus:ring-2 focus:ring-primary/20 text-sm"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors md:hidden"
-            >
-              <Activity className="w-5 h-5" />
-            </button>
-            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden border-2 border-white dark:border-slate-700 relative">
+            <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden border-2 border-white dark:border-slate-700 relative">
               <Image 
                 src="https://picsum.photos/seed/admin/40/40" 
                 alt="Admin" 
@@ -191,7 +231,7 @@ export default function DashboardPage() {
         </header>
 
         {/* Dashboard Content */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-7xl mx-auto">
             {renderSection()}
           </div>

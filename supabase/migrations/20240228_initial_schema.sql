@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS plans (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Create Servers table (formerly channels)
+-- Create Servers table
 CREATE TABLE IF NOT EXISTS servers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -47,27 +47,63 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Enable RLS
 ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE servers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 
--- Create policies for public access (for demo purposes)
+-- =========================
+-- DROP POLICIES IF EXISTS
+-- =========================
+
+-- plans
+DROP POLICY IF EXISTS "Allow public read access on plans" ON plans;
+DROP POLICY IF EXISTS "Allow public insert access on plans" ON plans;
+DROP POLICY IF EXISTS "Allow public update access on plans" ON plans;
+DROP POLICY IF EXISTS "Allow public delete access on plans" ON plans;
+
+-- servers
+DROP POLICY IF EXISTS "Allow public read access on servers" ON servers;
+DROP POLICY IF EXISTS "Allow public insert access on servers" ON servers;
+DROP POLICY IF EXISTS "Allow public update access on servers" ON servers;
+DROP POLICY IF EXISTS "Allow public delete access on servers" ON servers;
+
+-- customers
+DROP POLICY IF EXISTS "Allow public read access on customers" ON customers;
+DROP POLICY IF EXISTS "Allow public insert access on customers" ON customers;
+DROP POLICY IF EXISTS "Allow public update access on customers" ON customers;
+DROP POLICY IF EXISTS "Allow public delete access on customers" ON customers;
+
+-- transactions
+DROP POLICY IF EXISTS "Allow public read access on transactions" ON transactions;
+DROP POLICY IF EXISTS "Allow public insert access on transactions" ON transactions;
+DROP POLICY IF EXISTS "Allow public update access on transactions" ON transactions;
+DROP POLICY IF EXISTS "Allow public delete access on transactions" ON transactions;
+
+-- =========================
+-- CREATE POLICIES
+-- =========================
+
+-- plans
 CREATE POLICY "Allow public read access on plans" ON plans FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on plans" ON plans FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on plans" ON plans FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete access on plans" ON plans FOR DELETE USING (true);
 
+-- servers
 CREATE POLICY "Allow public read access on servers" ON servers FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on servers" ON servers FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on servers" ON servers FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete access on servers" ON servers FOR DELETE USING (true);
 
+-- customers
 CREATE POLICY "Allow public read access on customers" ON customers FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on customers" ON customers FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on customers" ON customers FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete access on customers" ON customers FOR DELETE USING (true);
 
+-- transactions
 CREATE POLICY "Allow public read access on transactions" ON transactions FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on transactions" ON transactions FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on transactions" ON transactions FOR UPDATE USING (true);

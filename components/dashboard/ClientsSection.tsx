@@ -13,6 +13,7 @@ import {
   Shield,
   Lock
 } from 'lucide-react';
+import Image from 'next/image';
 import { motion } from 'motion/react';
 import ClientModal from '@/components/ClientModal';
 import { supabase } from '@/lib/supabase';
@@ -145,18 +146,18 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
 
   return (
     <div className="space-y-8">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Clientes</h1>
-          <p className="text-slate-500">Gerencie sua base de assinantes e acessos.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Clientes</h1>
+          <p className="text-slate-500 text-sm sm:text-base">Gerencie sua base de assinantes e acessos.</p>
         </div>
-        <div className="flex gap-3">
-          <button className="bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-800 flex items-center gap-2 hover:bg-slate-50 transition-all">
+        <div className="flex gap-3 w-full sm:w-auto">
+          <button className="flex-1 sm:flex-none bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 hover:bg-slate-50 transition-all">
             <Filter className="w-4 h-4" /> Filtros
           </button>
           <button 
             onClick={openAddModal}
-            className="bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+            className="flex-1 sm:flex-none bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
           >
             <Plus className="w-4 h-4" /> Novo Cliente
           </button>
@@ -164,16 +165,16 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
       </header>
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <h2 className="font-bold text-lg text-slate-900 dark:text-white">Lista de Clientes</h2>
-          <div className="relative">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input 
               type="text" 
-              placeholder="Buscar por nome, email ou login..." 
+              placeholder="Buscar..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/20"
+              className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/20"
             />
           </div>
         </div>
@@ -195,8 +196,14 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
                 <tr key={customer.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                        <img src={customer.image} alt={customer.name} className="w-full h-full object-cover" />
+                      <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
+                        <Image 
+                          src={customer.image} 
+                          alt={customer.name} 
+                          fill 
+                          className="object-cover" 
+                          referrerPolicy="no-referrer"
+                        />
                       </div>
                       <div>
                         <div className="font-bold text-slate-900 dark:text-white text-sm">{customer.name}</div>

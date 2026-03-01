@@ -134,18 +134,18 @@ export default function FinanceSection({ transactions, setTransactions }: Financ
   const balance = totalRevenue - totalExpense;
   return (
     <div className="space-y-8">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Financeiro</h1>
-          <p className="text-slate-500">Acompanhe seu fluxo de caixa, receitas e despesas.</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Financeiro</h1>
+          <p className="text-slate-500 text-sm sm:text-base">Acompanhe seu fluxo de caixa, receitas e despesas.</p>
         </div>
-        <div className="flex gap-3">
-          <button className="bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-800 flex items-center gap-2 hover:bg-slate-50 transition-all">
+        <div className="flex gap-3 w-full sm:w-auto">
+          <button className="flex-1 sm:flex-none bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 hover:bg-slate-50 transition-all">
             <Download className="w-4 h-4" /> Exportar
           </button>
           <button 
             onClick={openAddModal}
-            className="bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+            className="flex-1 sm:flex-none bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
           >
             <DollarSign className="w-4 h-4" /> Nova Transação
           </button>
