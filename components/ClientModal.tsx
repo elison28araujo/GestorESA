@@ -245,7 +245,7 @@ function ClientForm({ editingClient, onSave, onClose, servers, allClients }: { e
               className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
             >
               {plans.length > 0 ? (
-                plans.map(p => <option key={p.id} value={p.name}>{p.name} - R$ {p.value}</option>)
+                plans.map(p => <option key={p.id} value={p.name}>{p.name} - R$ {Number(p.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</option>)
               ) : (
                 <>
                   <option>Basic SD</option>

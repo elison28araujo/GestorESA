@@ -26,8 +26,8 @@ export default function PlansSection() {
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    months: 1,
-    value: 0
+    months: '1',
+    value: ''
   });
 
   useEffect(() => {
@@ -42,10 +42,24 @@ export default function PlansSection() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const cleanValue = formData.value.toString().replace(',', '.');
+      const numericValue = parseFloat(cleanValue);
+      const numericMonths = parseInt(formData.months.toString());
+
+      if (isNaN(numericValue)) {
+        alert('Por favor, insira um valor numérico válido para o preço.');
+        return;
+      }
+
+      if (isNaN(numericMonths) || numericMonths < 1) {
+        alert('Por favor, insira um número de meses válido.');
+        return;
+      }
+
       const payload = {
         name: formData.name,
-        months: Number(formData.months),
-        value: Number(formData.value)
+        months: numericMonths,
+        value: numericValue
       };
 
       if (editingPlan) {
@@ -62,9 +76,9 @@ export default function PlansSection() {
       }
       setIsModalOpen(false);
       fetchPlans();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving plan:', error);
-      alert('Erro ao salvar plano. Verifique os dados e tente novamente.');
+      alert(`Erro ao salvar plano: ${error.message || 'Verifique os dados e tente novamente.'}`);
     }
   };
 
@@ -78,10 +92,14 @@ export default function PlansSection() {
   const openModal = (plan?: Plan) => {
     if (plan) {
       setEditingPlan(plan);
-      setFormData({ name: plan.name, months: plan.months, value: plan.value });
+      setFormData({ 
+        name: plan.name, 
+        months: plan.months.toString(), 
+        value: plan.value.toString() 
+      });
     } else {
       setEditingPlan(null);
-      setFormData({ name: '', months: 1, value: 0 });
+      setFormData({ name: '', months: '1', value: '' });
     }
     setIsModalOpen(true);
   };
@@ -167,7 +185,7 @@ export default function PlansSection() {
                     type="number"
                     min="1"
                     value={formData.months}
-                    onChange={(e) => setFormData({ ...formData, months: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, months: e.target.value })}
                     className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -175,11 +193,11 @@ export default function PlansSection() {
                   <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Valor (R$)</label>
                   <input 
                     required
-                    type="number"
-                    step="0.01"
+                    type="text"
                     value={formData.value}
-                    onChange={(e) => setFormData({ ...formData, value: parseFloat(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, value: e.target.value })}
                     className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Ex: 30,00"
                   />
                 </div>
               </div>
