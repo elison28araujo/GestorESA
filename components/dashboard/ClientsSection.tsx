@@ -9,6 +9,7 @@ import {
   Trash2,
   Server,
   Shield,
+  MessageCircle,
 } from "lucide-react";
 import Image from "next/image";
 import ClientModal from "@/components/ClientModal";
@@ -23,7 +24,7 @@ interface Client {
   // compat antigo
   plan: string;
 
-  // novo (puxado do Supabase)
+  // novo (recomendado)
   plan_id?: string | null;
   plan_name?: string | null;
   plan_months?: number | null;
@@ -46,6 +47,28 @@ interface ClientsSectionProps {
   StatusBadge: any;
 }
 
+/** Helpers */
+function parseDateBR(s: string) {
+  const [dd, mm, yyyy] = (s || "").split("/");
+  const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function formatDateBR(d: Date) {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+function addMonthsSafe(date: Date, months: number) {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() !== day) d.setDate(0);
+  return d;
+}
+
 export default function ClientsSection({
   customers,
   setCustomers,
@@ -56,16 +79,36 @@ export default function ClientsSection({
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredCustomers = customers.filter(
+  // filtros rápidos
+  const [onlyExpiringSoon, setOnlyExpiringSoon] = useState(false);
+  const [onlyExpired, setOnlyExpired] = useState(false);
+
+  const baseFiltered = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.login.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.phone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.login || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.phone || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.server_accesses?.some((a) =>
-        a.login.toLowerCase().includes(searchQuery.toLowerCase())
+        (a.login || "").toLowerCase().includes(searchQuery.toLowerCase())
       )
   );
+
+  const filteredCustomers = baseFiltered.filter((c) => {
+    const d = parseDateBR(c.expiry);
+    if (!d) return true;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.ceil(
+      (d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    if (onlyExpired) return d < today;
+    if (onlyExpiringSoon) return diffDays > 0 && diffDays <= 3;
+    return true;
+  });
 
   const handleSaveClient = async (clientData: any) => {
     try {
@@ -77,7 +120,6 @@ export default function ClientsSection({
         return;
       }
 
-      // compat: se vier só plan (string), mantém
       const planName = clientData.plan_name ?? clientData.plan ?? "";
 
       if (clientData.id) {
@@ -88,7 +130,6 @@ export default function ClientsSection({
             email: clientData.email,
             phone: clientData.phone,
 
-            // compat antigo + novos campos
             plan: planName,
             plan_id: clientData.plan_id ?? null,
             plan_name: clientData.plan_name ?? planName,
@@ -108,9 +149,7 @@ export default function ClientsSection({
 
         setCustomers((prev) =>
           prev.map((c) =>
-            c.id === clientData.id
-              ? { ...c, ...clientData, plan: planName }
-              : c
+            c.id === clientData.id ? { ...c, ...clientData, plan: planName } : c
           )
         );
       } else {
@@ -161,11 +200,88 @@ export default function ClientsSection({
 
       setCustomers((prev) => prev.filter((c) => c.id !== id));
     } catch (error: any) {
-      console.error("Error deleting client from Supabase:", error);
-      alert(
-        error?.message ??
-          "Não foi possível excluir no banco. Verifique permissões (RLS) e login."
+      console.error("Error deleting client:", error);
+      alert(error?.message ?? "Erro ao excluir. Verifique permissões (RLS).");
+    }
+  };
+
+  /** ✅ WhatsApp automático */
+  const openWhatsapp = (customer: any) => {
+    const phone = (customer.phone ?? "").replace(/\D/g, "");
+    if (!phone) {
+      alert("Cliente sem telefone.");
+      return;
+    }
+
+    const plan = customer.plan_name ?? customer.plan ?? "";
+    const price =
+      typeof customer.plan_price === "number"
+        ? Number(customer.plan_price).toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+          })
+        : "";
+
+    const msg =
+      `Olá ${customer.name}! ✅\n` +
+      `Seu plano: ${plan}${price ? ` (${price})` : ""}\n` +
+      `Vencimento: ${customer.expiry}\n\n` +
+      `Para renovar, me confirme por aqui 😉`;
+
+    const url = `https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
+  };
+
+  /** ✅ Renovação automática + cria transação */
+  const renewClient = async (customer: any, monthsToAdd: number) => {
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const user = u?.user;
+      if (!user) {
+        alert("Você precisa estar logado.");
+        return;
+      }
+
+      const baseDate = parseDateBR(customer.expiry) ?? new Date();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // se já venceu: conta a partir de hoje. se ainda válido: soma a partir do vencimento atual
+      const start = baseDate < today ? today : baseDate;
+      const newExpiry = formatDateBR(addMonthsSafe(start, monthsToAdd));
+
+      const unit = Number(customer.plan_price ?? 0);
+      const amount = unit * monthsToAdd;
+
+      // 1) atualiza cliente
+      const { error: upErr } = await supabase
+        .from("customers")
+        .update({ expiry: newExpiry, status: "Ativo" })
+        .eq("id", customer.id);
+      if (upErr) throw upErr;
+
+      // 2) salva transação no financeiro (se existir tabela transactions)
+      await supabase.from("transactions").insert([
+        {
+          owner_id: user.id,
+          customer_id: customer.id,
+          type: "income",
+          amount: amount,
+          description: `Renovação ${monthsToAdd} mês(es) - ${customer.name} (${customer.plan_name ?? customer.plan})`,
+        },
+      ]);
+
+      // 3) atualiza UI
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === customer.id ? { ...c, expiry: newExpiry, status: "Ativo" } : c
+        )
       );
+
+      alert(`Renovado! Novo vencimento: ${newExpiry}`);
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? "Erro ao renovar.");
     }
   };
 
@@ -195,10 +311,40 @@ export default function ClientsSection({
             Gerencie sua base de assinantes e acessos.
           </p>
         </div>
+
         <div className="flex gap-3 w-full sm:w-auto">
           <button className="flex-1 sm:flex-none bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg font-semibold border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 hover:bg-slate-50 transition-all">
             <Filter className="w-4 h-4" /> Filtros
           </button>
+
+          <button
+            onClick={() => {
+              setOnlyExpired(false);
+              setOnlyExpiringSoon((v) => !v);
+            }}
+            className={`flex-1 sm:flex-none px-4 py-2 rounded-lg font-semibold border transition-all ${
+              onlyExpiringSoon
+                ? "bg-amber-500 text-white border-amber-500"
+                : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+            }`}
+          >
+            Vence em 3 dias
+          </button>
+
+          <button
+            onClick={() => {
+              setOnlyExpiringSoon(false);
+              setOnlyExpired((v) => !v);
+            }}
+            className={`flex-1 sm:flex-none px-4 py-2 rounded-lg font-semibold border transition-all ${
+              onlyExpired
+                ? "bg-red-500 text-white border-red-500"
+                : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+            }`}
+          >
+            Vencidos
+          </button>
+
           <button
             onClick={openAddModal}
             className="flex-1 sm:flex-none bg-primary text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
@@ -237,6 +383,7 @@ export default function ClientsSection({
                 <th className="px-6 py-4 text-right">Ações</th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredCustomers.map((customer) => (
                 <tr
@@ -312,7 +459,9 @@ export default function ClientsSection({
                           style: "currency",
                           currency: "BRL",
                         })}
-                        {customer.plan_months ? ` / ${customer.plan_months} mês(es)` : ""}
+                        {customer.plan_months
+                          ? ` / ${customer.plan_months} mês(es)`
+                          : ""}
                       </div>
                     )}
                   </td>
@@ -323,22 +472,22 @@ export default function ClientsSection({
 
                   <td className="px-6 py-4 text-sm text-slate-500">
                     {(() => {
-                      const [day, month, year] = customer.expiry.split("/");
-                      const expiryDate = new Date(
-                        parseInt(year),
-                        parseInt(month) - 1,
-                        parseInt(day)
-                      );
-                      expiryDate.setHours(0, 0, 0, 0);
+                      const expiryDate = parseDateBR(customer.expiry);
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
 
-                      const diffTime = expiryDate.getTime() - today.getTime();
-                      const diffDays = Math.ceil(
-                        diffTime / (1000 * 60 * 60 * 24)
-                      );
-                      const isExpiringSoon = diffDays > 0 && diffDays <= 3;
-                      const isExpired = expiryDate < today;
+                      let diffDays = 9999;
+                      let isExpired = false;
+                      let isExpiringSoon = false;
+
+                      if (expiryDate) {
+                        diffDays = Math.ceil(
+                          (expiryDate.getTime() - today.getTime()) /
+                            (1000 * 60 * 60 * 24)
+                        );
+                        isExpired = expiryDate < today;
+                        isExpiringSoon = diffDays > 0 && diffDays <= 3;
+                      }
 
                       return (
                         <div className="flex flex-col">
@@ -358,6 +507,11 @@ export default function ClientsSection({
                               Vence em {diffDays}d
                             </span>
                           )}
+                          {isExpired && (
+                            <span className="text-[10px] text-red-500 font-bold uppercase">
+                              Vencido
+                            </span>
+                          )}
                         </div>
                       );
                     })()}
@@ -365,15 +519,50 @@ export default function ClientsSection({
 
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {/* WhatsApp */}
+                      <button
+                        onClick={() => openWhatsapp(customer)}
+                        className="p-2 hover:bg-green-50 dark:hover:bg-green-900/30 text-slate-400 hover:text-green-600 rounded-lg transition-colors"
+                        title="Enviar WhatsApp"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+
+                      {/* Renovar */}
+                      <button
+                        onClick={() => renewClient(customer, 1)}
+                        className="px-2 py-1 text-xs rounded-md border border-emerald-200 hover:bg-emerald-50 text-emerald-700"
+                        title="Renovar +1 mês"
+                      >
+                        +1M
+                      </button>
+                      <button
+                        onClick={() => renewClient(customer, 3)}
+                        className="px-2 py-1 text-xs rounded-md border border-emerald-200 hover:bg-emerald-50 text-emerald-700"
+                        title="Renovar +3 meses"
+                      >
+                        +3M
+                      </button>
+                      <button
+                        onClick={() => renewClient(customer, 6)}
+                        className="px-2 py-1 text-xs rounded-md border border-emerald-200 hover:bg-emerald-50 text-emerald-700"
+                        title="Renovar +6 meses"
+                      >
+                        +6M
+                      </button>
+
+                      {/* Editar/Excluir */}
                       <button
                         onClick={() => openEditModal(customer)}
                         className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-slate-400 hover:text-blue-500 rounded-lg transition-colors"
+                        title="Editar"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteClient(customer.id)}
                         className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                        title="Excluir"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -384,10 +573,7 @@ export default function ClientsSection({
 
               {filteredCustomers.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="px-6 py-12 text-center text-slate-500"
-                  >
+                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
                     Nenhum cliente encontrado.
                   </td>
                 </tr>
