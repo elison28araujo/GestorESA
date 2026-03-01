@@ -13,13 +13,15 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
-  Activity
+  Activity,
+  Calendar
 } from 'lucide-react';
 import DashboardHome from '@/components/dashboard/DashboardHome';
 import ClientsSection from '@/components/dashboard/ClientsSection';
 import ServersSection from '@/components/dashboard/ServersSection';
 import FinanceSection from '@/components/dashboard/FinanceSection';
 import SettingsSection from '@/components/dashboard/SettingsSection';
+import PlansSection from '@/components/dashboard/PlansSection';
 import { supabase } from '@/lib/supabase';
 
 const initialCustomers = [
@@ -78,6 +80,8 @@ export default function DashboardPage() {
         return <ServersSection servers={servers} setServers={setServers} />;
       case 'finance':
         return <FinanceSection transactions={transactions} setTransactions={setTransactions} />;
+      case 'plans':
+        return <PlansSection />;
       case 'settings':
         return <SettingsSection />;
       default:
@@ -124,6 +128,13 @@ export default function DashboardPage() {
             active={activeSection === 'finance'}
             sidebarOpen={sidebarOpen} 
             onClick={() => setActiveSection('finance')}
+          />
+          <SidebarItem 
+            icon={Calendar} 
+            label="Planos" 
+            active={activeSection === 'plans'}
+            sidebarOpen={sidebarOpen} 
+            onClick={() => setActiveSection('plans')}
           />
           <SidebarItem 
             icon={Settings} 

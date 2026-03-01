@@ -1,3 +1,12 @@
+-- Create Plans table
+CREATE TABLE IF NOT EXISTS plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  months INTEGER NOT NULL,
+  value NUMERIC(10, 2) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- Create Servers table (formerly channels)
 CREATE TABLE IF NOT EXISTS servers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -14,6 +23,7 @@ CREATE TABLE IF NOT EXISTS customers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
+  phone TEXT,
   plan TEXT NOT NULL,
   status TEXT NOT NULL,
   expiry DATE NOT NULL,
@@ -37,11 +47,17 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE servers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for public access (for demo purposes)
+CREATE POLICY "Allow public read access on plans" ON plans FOR SELECT USING (true);
+CREATE POLICY "Allow public insert access on plans" ON plans FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update access on plans" ON plans FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete access on plans" ON plans FOR DELETE USING (true);
+
 CREATE POLICY "Allow public read access on servers" ON servers FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on servers" ON servers FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on servers" ON servers FOR UPDATE USING (true);

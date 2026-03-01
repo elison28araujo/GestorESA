@@ -9,18 +9,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Edit2,
-  Trash2
+  Trash2,
+  Bell
 } from 'lucide-react';
 import Image from 'next/image';
 import { motion } from 'motion/react';
 import { supabase } from '@/lib/supabase';
-
-const stats = [
-  { label: 'Clientes Ativos', value: '1,284', change: '+12%', icon: Users, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-  { label: 'Receita Mensal', value: 'R$ 42.500', change: '+8%', icon: CreditCard, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-  { label: 'Novas Assinaturas', value: '156', change: '+24%', icon: TrendingUp, color: 'text-primary', bg: 'bg-primary/10' },
-  { label: 'Status do Servidor', value: '99.9%', change: 'Estável', icon: Activity, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-];
+import { useState, useEffect } from 'react';
 
 interface DashboardHomeProps {
   customers: any[];
@@ -29,6 +24,53 @@ interface DashboardHomeProps {
 }
 
 export default function DashboardHome({ customers, setCustomers, StatusBadge }: DashboardHomeProps) {
+  const [plans, setPlans] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data: plansData } = await supabase.from('plans').select('*');
+      if (plansData) setPlans(plansData);
+      
+      const { data: transData } = await supabase.from('transactions').select('*');
+      if (transData) setTransactions(transData);
+    };
+    fetchData();
+  }, []);
+
+  const activeClients = customers.filter(c => c.status === 'Ativo').length;
+  
+  const monthlyRevenue = transactions
+    .filter(t => t.type === 'Receita' && t.status === 'Concluído')
+    .reduce((acc, t) => acc + parseFloat(t.amount.toString().replace('R$', '').replace(',', '.')), 0);
+
+  const expiredClients = customers.filter(c => {
+    const [day, month, year] = c.expiry.split('/');
+    const expiryDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    expiryDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return expiryDate < today;
+  }).length;
+
+  const expiringSoon = customers.filter(c => {
+    const [day, month, year] = c.expiry.split('/');
+    const expiryDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    expiryDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = expiryDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 && diffDays <= 3;
+  });
+
+  const stats = [
+    { label: 'Clientes Ativos', value: activeClients.toString(), change: '', icon: Users, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+    { label: 'Receita Mensal', value: `R$ ${monthlyRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, change: '', icon: CreditCard, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+    { label: 'Novas Assinaturas', value: customers.length.toString(), change: '', icon: TrendingUp, color: 'text-primary', bg: 'bg-primary/10' },
+    { label: 'Clientes Vencidos', value: expiredClients.toString(), change: '', icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10' },
+  ];
+
   const handleDeleteClient = async (id: any) => {
     if (confirm('Tem certeza que deseja excluir este cliente?')) {
       try {
@@ -47,9 +89,17 @@ export default function DashboardHome({ customers, setCustomers, StatusBadge }: 
   };
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bem-vindo de volta, Administrador</h1>
-        <p className="text-slate-500">Aqui está o que está acontecendo com sua rede hoje.</p>
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Bem-vindo de volta, Administrador</h1>
+          <p className="text-slate-500">Aqui está o que está acontecendo com sua rede hoje.</p>
+        </div>
+        {expiringSoon.length > 0 && (
+          <div className="flex items-center gap-2 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-lg border border-amber-200 dark:border-amber-800 animate-pulse">
+            <Bell className="w-4 h-4" />
+            <span className="text-sm font-bold">{expiringSoon.length} {expiringSoon.length === 1 ? 'cliente vence' : 'clientes vencem'} em 3 dias!</span>
+          </div>
+        )}
       </header>
 
       {/* Stats Grid */}

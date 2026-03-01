@@ -21,6 +21,7 @@ interface Client {
   id: any;
   name: string;
   email: string;
+  phone?: string;
   plan: string;
   status: string;
   expiry: string;
@@ -47,6 +48,7 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.login.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.phone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.server_accesses?.some(a => a.login.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
@@ -58,6 +60,7 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
           .update({
             name: clientData.name,
             email: clientData.email,
+            phone: clientData.phone,
             plan: clientData.plan,
             status: clientData.status,
             expiry: clientData.expiry,
@@ -74,6 +77,7 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
         const newClientData = {
           name: clientData.name,
           email: clientData.email,
+          phone: clientData.phone,
           plan: clientData.plan,
           status: clientData.status,
           expiry: clientData.expiry,
@@ -196,7 +200,10 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
                       </div>
                       <div>
                         <div className="font-bold text-slate-900 dark:text-white text-sm">{customer.name}</div>
-                        <div className="text-slate-500 text-xs">{customer.email}</div>
+                        <div className="text-slate-500 text-xs flex flex-col">
+                          <span>{customer.email}</span>
+                          {customer.phone && <span className="text-primary font-medium">{customer.phone}</span>}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -229,7 +236,29 @@ export default function ClientsSection({ customers, setCustomers, servers, Statu
                   <td className="px-6 py-4">
                     <StatusBadge status={customer.status} />
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-500">{customer.expiry}</td>
+                  <td className="px-6 py-4 text-sm text-slate-500">
+                    {(() => {
+                      const [day, month, year] = customer.expiry.split('/');
+                      const expiryDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                      expiryDate.setHours(0, 0, 0, 0);
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      
+                      const diffTime = expiryDate.getTime() - today.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      const isExpiringSoon = diffDays > 0 && diffDays <= 3;
+                      const isExpired = expiryDate < today;
+
+                      return (
+                        <div className="flex flex-col">
+                          <span className={`${isExpired ? 'text-red-500 font-bold' : isExpiringSoon ? 'text-amber-500 font-bold' : ''}`}>
+                            {customer.expiry}
+                          </span>
+                          {isExpiringSoon && <span className="text-[10px] text-amber-500 font-bold uppercase">Vence em {diffDays}d</span>}
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button 

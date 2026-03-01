@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, User, Mail, Tv, Calendar, ShieldCheck, Server, Lock, Plus, Trash2 } from 'lucide-react';
+import { X, User, Mail, Tv, Calendar, ShieldCheck, Server, Lock, Plus, Trash2, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { supabase } from '@/lib/supabase';
 
 interface Client {
   id: any;
   name: string;
   email: string;
+  phone?: string;
   plan: string;
   status: string;
   expiry: string;
@@ -62,18 +64,41 @@ export default function ClientModal({ isOpen, onClose, onSave, editingClient, se
 }
 
 function ClientForm({ editingClient, onSave, onClose, servers, allClients }: { editingClient?: Client | null, onSave: any, onClose: any, servers: any[], allClients: Client[] }) {
+  const [plans, setPlans] = useState<any[]>([]);
+  
+  const getDefaultExpiry = () => {
+    const date = new Date();
+    date.setDate(date.getDate() + 30);
+    return date.toISOString().split('T')[0].split('-').reverse().join('/');
+  };
+
   const [formData, setFormData] = useState({
     name: editingClient?.name || '',
     email: editingClient?.email || '',
-    plan: editingClient?.plan || 'Standard HD',
+    phone: editingClient?.phone || '',
+    plan: editingClient?.plan || '',
     status: editingClient?.status || 'Ativo',
-    expiry: editingClient?.expiry || '',
+    expiry: editingClient?.expiry || (editingClient ? '' : getDefaultExpiry()),
     server_accesses: editingClient?.server_accesses && editingClient.server_accesses.length > 0
       ? editingClient.server_accesses 
       : (editingClient?.server_id 
           ? [{ server_id: editingClient.server_id, login: editingClient.login, password: editingClient.password }] 
           : [{ server_id: '', login: '', password: '' }]),
   });
+
+  useEffect(() => {
+    const fetchPlans = async () => {
+      const { data } = await supabase.from('plans').select('*');
+      if (data) {
+        setPlans(data);
+        // Only set default plan if not editing and no plan is selected
+        if (!editingClient && !formData.plan && data.length > 0) {
+          setFormData(prev => ({ ...prev, plan: data[0].name }));
+        }
+      }
+    };
+    fetchPlans();
+  }, [editingClient, formData.plan]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -182,18 +207,31 @@ function ClientForm({ editingClient, onSave, onClose, servers, allClients }: { e
           />
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-            <Mail className="w-4 h-4" /> Email
-          </label>
-          <input
-            required
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-            placeholder="joao@exemplo.com"
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Mail className="w-4 h-4" /> Email
+            </label>
+            <input
+              required
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+              placeholder="joao@exemplo.com"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <Phone className="w-4 h-4" /> Telefone
+            </label>
+            <input
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+              placeholder="(00) 00000-0000"
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -206,9 +244,15 @@ function ClientForm({ editingClient, onSave, onClose, servers, allClients }: { e
               onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
               className="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:white focus:ring-2 focus:ring-primary/20 outline-none transition-all"
             >
-              <option>Basic SD</option>
-              <option>Standard HD</option>
-              <option>Premium 4K</option>
+              {plans.length > 0 ? (
+                plans.map(p => <option key={p.id} value={p.name}>{p.name} - R$ {p.value}</option>)
+              ) : (
+                <>
+                  <option>Basic SD</option>
+                  <option>Standard HD</option>
+                  <option>Premium 4K</option>
+                </>
+              )}
             </select>
           </div>
 
