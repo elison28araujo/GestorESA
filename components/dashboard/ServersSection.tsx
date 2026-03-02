@@ -13,7 +13,7 @@ import {
   Users
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import ServerModal from './ServerModal';
+import ServerModal from '@/components/dashboard/ServerModal';
 import { supabase } from '@/lib/supabase';
 
 interface ServerData {
